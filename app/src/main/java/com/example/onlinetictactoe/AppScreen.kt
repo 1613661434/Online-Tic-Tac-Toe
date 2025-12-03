@@ -34,6 +34,20 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 // 首页
 @Composable
 fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
+    // 在HomeScreen函数内添加
+    val connectionInfo = remember { mutableStateOf("") }
+
+    // 解析「IP:端口:房间号」格式
+    fun parseConnectionInfo(input: String): Triple<String?, Int?, String?> {
+        val parts = input.split(":")
+        if (parts.size != 3) return Triple(null, null, null)
+        return Triple(
+            parts[0].takeIf { it.isNotBlank() },  // first: IP
+            parts[1].toIntOrNull(),               // second: 端口
+            parts[2].takeIf { it.isNotBlank() }   // third: 房间号
+        )
+    }
+
     // 获取本地网络服务实例
     val localNetworkService = remember {
         LocalNetworkService(
@@ -41,8 +55,7 @@ fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
             getCurrentRoomId = { null }  // 提供getCurrentRoomId参数的默认实现
         )
     }
-    // 初始化IP输入框值为本地IP
-    val ipText = remember { mutableStateOf(localNetworkService.getLocalIpAddress()) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -102,19 +115,29 @@ fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                 modifier = Modifier.padding(top = 16.dp)
             )
         }
-        // 手动输入IP连接
         Spacer(modifier = Modifier.height(16.dp))
-        Text("或输入对方IP连接：")
+        Text("或输入连接信息（格式：IP:端口:房间号）：")
         TextField(
-            value = ipText.value,
-            onValueChange = { ipText.value = it },
-            label = { Text("对方IP地址（如192.168.1.100）") },
+            value = connectionInfo.value,
+            onValueChange = { connectionInfo.value = it },
+            label = { Text("例如：192.168.1.100:8080:local_123456") },  // 示例改为新格式
             modifier = Modifier.fillMaxWidth()
         )
         Button(
             onClick = {
-                val roomLink = "http://${ipText.value}:8080/join?roomId=local_manual"
-                viewModel.handleIntent(TicTacToeIntent.JoinRoom(roomLink))
+                // 解析输入的连接信息并连接
+                val connectionTriple = parseConnectionInfo(connectionInfo.value)
+                val ip = connectionTriple.first
+                val port = connectionTriple.second
+                val roomId = connectionTriple.third
+
+                if (ip != null && port != null && roomId != null) {
+                    // 直接使用IP:端口:房间号格式作为roomLink，不拼接URL
+                    val roomLink = "$ip:$port:$roomId"
+                    viewModel.handleIntent(TicTacToeIntent.JoinRoom(roomLink))
+                } else {
+                    viewModel.handleIntent(TicTacToeIntent.ShowError("格式错误，请使用 IP:端口:房间号"))
+                }
             },
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -148,9 +171,16 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         // 游戏状态
         Text(
             text = when (uiState.gameResult) {
-                GameResult.PLAYING -> "当前玩家：${uiState.currentPlayer.name}"
-                GameResult.WIN_X -> "X 获胜！"
-                GameResult.WIN_O -> "O 获胜！"
+                GameResult.PLAYING -> {
+                    val playerName = if (uiState.currentPlayer == CellState.X) {
+                        if (uiState.currentRoom?.host == "Host") "你" else "对方"
+                    } else {
+                        if (uiState.currentRoom?.guest == "本地玩家") "你" else "对方"
+                    }
+                    "当前回合：$playerName（${uiState.currentPlayer.name}）"
+                }
+                GameResult.WIN_X -> if (uiState.currentRoom?.host == "Host") "你赢了！" else "对方赢了！"
+                GameResult.WIN_O -> if (uiState.currentRoom?.guest == "本地玩家") "你赢了！" else "对方赢了！"
                 GameResult.DRAW -> "平局！"
             },
             fontSize = 20.sp,
@@ -185,19 +215,20 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                                 .padding(4.dp),
                             border = BorderStroke(1.dp, Color.Gray),
                             onClick = {
-                                // 新增判断条件：不是AI回合且游戏进行中才允许点击
                                 val canClick = when (uiState.gameMode) {
                                     GameMode.HUMAN_VS_AI -> {
-                                        // 人机模式下，只有当前玩家是X（假设X是人类）且不在加载中才能点击
+                                        // 人机模式逻辑保持不变
                                         uiState.currentPlayer == CellState.X && !uiState.isLoading && uiState.gameResult == GameResult.PLAYING
                                     }
-
                                     GameMode.HUMAN_VS_HUMAN_ONLINE -> {
-                                        // 新增：只有房间满员且不在等待状态才能点击
+                                        // 在线对战权限控制：房间满员 + 游戏进行中 + 是当前玩家的回合
                                         !uiState.isWaitingForPlayer &&
                                                 uiState.currentRoom?.isFull == true &&
                                                 uiState.gameResult == GameResult.PLAYING &&
-                                                !uiState.isLoading
+                                                !uiState.isLoading &&
+                                                // 核心：判断当前回合是否为本地玩家（房主是X，客人是O）
+                                                (uiState.currentPlayer == CellState.X && uiState.currentRoom?.host == "Host") ||  // 房主只能在X回合操作
+                                                (uiState.currentPlayer == CellState.O && uiState.currentRoom?.guest == "本地玩家")  // 客人只能在O回合操作
                                     }
                                 }
 

@@ -30,7 +30,10 @@ class LocalNetworkService(private val onGameUpdate: (GameUpdate) -> Unit,
     // 客户端初始化（使用客户端专用ContentNegotiation）
     val client = HttpClient(CIO) {
         install(ClientContentNegotiation) {
-            gson() // 配置Gson序列化
+            gson()
+        }
+        engine {
+            requestTimeout = 5000 // 5秒超时
         }
     }
 
@@ -79,6 +82,7 @@ class LocalNetworkService(private val onGameUpdate: (GameUpdate) -> Unit,
     // 停止服务器
     fun stopServer() {
         server?.stop(gracePeriodMillis = 1000, timeoutMillis = 1000)
+        server = null // 显式置空，避免残留引用
     }
 
     // 发送游戏更新到对手（需在协程中调用）

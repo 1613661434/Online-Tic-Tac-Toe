@@ -58,6 +58,9 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
             is TicTacToeIntent.JoinRoom -> joinRoom(intent.roomId)
             TicTacToeIntent.ShareRoomLink -> shareRoomLink()
             is TicTacToeIntent.ExitRoom -> exitRoom()
+            is TicTacToeIntent.ShowError -> {
+                _uiState.update { it.copy(errorMsg = intent.message) }
+            }
         }
     }
 
@@ -96,16 +99,30 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         if (_uiState.value.gameMode == GameMode.HUMAN_VS_HUMAN_ONLINE) {
             viewModelScope.launch(Dispatchers.IO) {
                 val roomId = _uiState.value.currentRoom?.roomId ?: return@launch
+                // 使用当前落子的玩家（修复玩家标识错误）
+                val playerWhoMoved = if (_uiState.value.currentPlayer == CellState.X) CellState.X else CellState.O
+                val gameResult = _uiState.value.gameResult
+
                 val gameUpdate = GameUpdate(
                     roomId = roomId,
                     row = row,
                     col = col,
-                    player = _uiState.value.currentPlayer, // 落子的玩家
-                    gameResult = _uiState.value.gameResult
+                    player = playerWhoMoved,  // 发送实际落子的玩家
+                    gameResult = gameResult
                 )
-                // 发送到对方IP（从房间信息中获取）
-                val remoteIp = parseIpAndPortFromRoomId(_uiState.value.roomLink ?: "")?.first ?: return@launch
-                localNetworkService.sendGameUpdate(remoteIp, 8080, gameUpdate)
+
+                // 获取对方的IP和端口（修复连接信息获取方式）
+                val currentRoomLink = _uiState.value.roomLink ?: return@launch
+                val (remoteIp, port, _) = parseIpAndPortFromRoomId(currentRoomLink)
+                if (remoteIp != null && port != null) {
+                    try {
+                        localNetworkService.sendGameUpdate(remoteIp, port, gameUpdate)
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            _uiState.update { it.copy(errorMsg = "发送失败：${e.message}") }
+                        }
+                    }
+                }
             }
         }
     }
@@ -285,7 +302,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 // 模拟网络延迟
-                kotlinx.coroutines.delay(2000)
+                delay(2000)
                 // 发起匹配请求
                 val response = apiService.startMatch(_uiState.value.gameMode.name)
                 if (response.isSuccessful) {
@@ -440,91 +457,106 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         if (update.roomId != _uiState.value.currentRoom?.roomId) return
 
         viewModelScope.launch(Dispatchers.Main) {
-            // 如果是玩家加入通知（用特殊坐标标识）
-            if (update.row == -1 && update.col == -1) {
-                // 更新房间信息，标记为已满
-                _uiState.value.currentRoom?.let { currentRoom ->
-                    _uiState.update {
-                        it.copy(
-                            currentRoom = currentRoom.copy(
-                                guest = "已加入",
-                                isFull = true
-                            ),
-                            isWaitingForPlayer = false // 取消等待状态
-                        )
-                    }
-                }
-                return@launch
-            }
-
-            // 更新本地棋盘（对方落子的位置）
+            // 处理对方落子更新
             val newBoard = _uiState.value.board.mapIndexed { r, rows ->
                 rows.mapIndexed { c, cell ->
                     if (r == update.row && c == update.col) update.player else cell
                 }
             }
 
-            // 更新状态（切换当前玩家，同步游戏结果）
+            // 更新游戏状态（切换当前玩家为本地玩家）
             _uiState.update {
                 it.copy(
                     board = newBoard,
                     currentPlayer = if (update.player == CellState.X) CellState.O else CellState.X,
-                    gameResult = update.gameResult
+                    gameResult = update.gameResult,
+                    // 确保UI重绘
+                    isLoading = false
                 )
             }
 
-            // 如果游戏结束，保存记录
+            // 游戏结束处理
             if (update.gameResult != GameResult.PLAYING) {
                 saveGameRecordToMemory(update.gameResult)
             }
         }
     }
 
+    // 在TicTacToeMviViewModel的createRoom函数中修改
     private fun createRoom(playerName: String) {
         _uiState.update { it.copy(isLoading = true) }
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // 启动本地服务器（端口8080）
-                val localIp = localNetworkService.startServer(8080)
-                // 生成本地网络房间链接（包含IP和端口）
-                val roomId = "local_${System.currentTimeMillis()}" // 本地房间ID（简化）
-                val link = "http://$localIp:8080/join?roomId=$roomId"
+            var port = 8080
+            var maxRetries = 3
+            var success = false
 
-                // 创建本地房间信息
-                val localRoom = GameRoom(
-                    roomId = roomId,
-                    host = playerName,
-                    guest = null
-                )
+            while (maxRetries > 0 && !success) {
+                try {
+                    val localIp = localNetworkService.startServer(port)
+                    val roomId = "local_${System.currentTimeMillis()}"
+                    // 生成 "IP:端口:房间号" 格式的链接（核心修改）
+                    val link = "$localIp:$port:$roomId"  // 不再使用HTTP URL格式
 
-                withContext(Dispatchers.Main) {
-                    _uiState.update {
-                        it.copy(
-                            currentRoom = localRoom,
-                            roomLink = link,
-                            isLoading = false,
-                            currentScreen = Screen.GAME,
-                            currentPlayer = CellState.X,
-                            gameMode = GameMode.HUMAN_VS_HUMAN_ONLINE,
-                            isWaitingForPlayer = true, // 设置为等待状态
-                            gameResult = GameResult.PLAYING // 保持游戏状态为进行中，但通过isWaitingForPlayer控制
-                        )
+                    val localRoom = GameRoom(
+                        roomId = roomId,
+                        host = playerName,
+                        guest = null
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        _uiState.update {
+                            it.copy(
+                                currentRoom = localRoom,
+                                roomLink = link,  // 保存新格式链接
+                                isLoading = false,
+                                currentScreen = Screen.GAME,
+                                currentPlayer = CellState.X,
+                                gameMode = GameMode.HUMAN_VS_HUMAN_ONLINE,
+                                isWaitingForPlayer = true,
+                                gameResult = GameResult.PLAYING
+                            )
+                        }
                     }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    _uiState.update {
-                        it.copy(isLoading = false, errorMsg = "创建房间失败：${e.message}")
+                    success = true
+                } catch (e: Exception) {
+                    // 保持原有重试逻辑不变
+                    if (e.message?.contains("Address already in use") == true) {
+                        maxRetries--
+                        port++
+                        if (maxRetries == 0) {
+                            withContext(Dispatchers.Main) {
+                                _uiState.update {
+                                    it.copy(
+                                        isLoading = false,
+                                        errorMsg = "端口被占用，请稍后重试（已尝试端口: 8080-${port}）"
+                                    )
+                                }
+                            }
+                        } else {
+                            delay(500)
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            _uiState.update {
+                                it.copy(isLoading = false, errorMsg = "创建房间失败：${e.message}")
+                            }
+                        }
+                        break
                     }
                 }
             }
         }
     }
+
     // 处理加入房间
-    private fun joinRoom(roomId: String) {
-        // 从链接解析IP和端口
-        val (remoteIp, port) = parseIpAndPortFromRoomId(roomId) ?: run {
-            _uiState.update { it.copy(errorMsg = "无效的房间链接", isLoading = false) }
+    private fun joinRoom(roomLink: String) {
+        val (remoteIp, port, roomId) = parseIpAndPortFromRoomId(roomLink) ?: run {
+            _uiState.update { it.copy(errorMsg = "无效的房间链接格式", isLoading = false) }
+            return
+        }
+        // 验证必要参数
+        if (remoteIp.isNullOrBlank() || port == null || roomId.isNullOrBlank()) {
+            _uiState.update { it.copy(errorMsg = "链接缺少IP、端口或房间号", isLoading = false) }
             return
         }
 
@@ -532,23 +564,22 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // 使用localNetworkService的client，修复Unresolved reference 'client'
+                // 检查房间是否存在
                 val response = localNetworkService.client.get("http://$remoteIp:$port/checkRoom") {
-                    // 修复Unresolved reference 'parameter'
                     url {
                         parameters.append("roomId", roomId)
                     }
                 }
 
-                // 解析响应
                 val checkResponse = gson.fromJson(response.body<String>(), LocalNetworkService.RoomCheckResponse::class.java)
 
-                if (checkResponse.exists) { // 修复Unresolved reference 'exists'
+                if (checkResponse.exists) {
                     // 房间存在，进入游戏
                     withContext(Dispatchers.Main) {
-                        _uiState.update {
-                            it.copy(
-                                currentPlayer = CellState.O,
+                        val currentBoardSize = _uiState.value.boardSize
+                        _uiState.update { state ->
+                            state.copy(
+                                currentPlayer = CellState.O,  // 加入者固定为O
                                 currentRoom = GameRoom(
                                     roomId = roomId,
                                     host = "对方玩家",
@@ -558,20 +589,22 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                                 isLoading = false,
                                 currentScreen = Screen.GAME,
                                 isWaitingForPlayer = false,
-                                gameMode = GameMode.HUMAN_VS_HUMAN_ONLINE
+                                gameMode = GameMode.HUMAN_VS_HUMAN_ONLINE,
+                                board = List(currentBoardSize) { List(currentBoardSize) { CellState.EMPTY } },
+                                gameResult = GameResult.PLAYING
                             )
                         }
-
-                        // 通知主机已加入
-                        val gameUpdate = GameUpdate(
-                            roomId = roomId,
-                            row = -1,
-                            col = -1,
-                            player = CellState.EMPTY,
-                            gameResult = GameResult.PLAYING
-                        )
-                        localNetworkService.sendGameUpdate(remoteIp, port, gameUpdate)
                     }
+
+                    // 发送玩家加入通知给房主（关键修复）
+                    val joinUpdate = GameUpdate(
+                        roomId = roomId,
+                        row = -1,  // 特殊值标识加入通知
+                        col = -1,
+                        player = CellState.O,  // 客人固定为O
+                        gameResult = GameResult.PLAYING
+                    )
+                    localNetworkService.sendGameUpdate(remoteIp, port, joinUpdate)
                 } else {
                     // 房间不存在
                     withContext(Dispatchers.Main) {
@@ -612,17 +645,23 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    // 辅助方法：从房间链接中解析IP和端口
-    private fun parseIpAndPortFromRoomId(roomLink: String): Pair<String, Int>? {
-        return try {
-            val url = roomLink.replace("http://", "")
-            val ipAndPort = url.split("/")[0]
-            val parts = ipAndPort.split(":")
-            Pair(parts[0], parts[1].toInt())
-        } catch (e: Exception) {
-            null
+
+// 替换原有的parseIpAndPortFromRoomId函数
+private fun parseIpAndPortFromRoomId(roomLink: String): Triple<String?, Int?, String?> {
+    return try {
+        // 直接按 ":" 拆分字符串为三部分：IP:端口:房间号
+        val parts = roomLink.split(":", limit = 3)
+        if (parts.size != 3) {
+            return Triple(null, null, null)
         }
+        val ip = parts[0].takeIf { it.isNotBlank() }
+        val port = parts[1].toIntOrNull()
+        val roomId = parts[2].takeIf { it.isNotBlank() }
+        Triple(ip, port, roomId)
+    } catch (e: Exception) {
+        Triple(null, null, null)
     }
+}
 
     // 处理分享链接
     private fun shareRoomLink() {
@@ -632,7 +671,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
             val context = getApplication<Application>().applicationContext
             val shareIntent = Intent().apply {
                 action = Intent.ACTION_SEND
-                putExtra(Intent.EXTRA_TEXT, "来和我一起玩井字棋吧！链接：$link")
+                putExtra(Intent.EXTRA_TEXT, "$link")
                 type = "text/plain"
             }
             context.startActivity(

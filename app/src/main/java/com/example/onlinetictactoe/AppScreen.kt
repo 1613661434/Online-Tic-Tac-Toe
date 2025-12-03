@@ -134,15 +134,31 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                 Row {
                     for (col in 0 until boardSize) {
                         val cell = uiState.board[row][col]
+// 对战页中的棋盘格子部分修改
                         Card(
                             modifier = Modifier
                                 .size(80.dp)
                                 .padding(4.dp),
                             border = BorderStroke(1.dp, Color.Gray),
                             onClick = {
-                                viewModel.handleIntent(TicTacToeIntent.ClickCell(row, col))
+                                // 新增判断条件：不是AI回合且游戏进行中才允许点击
+                                val canClick = when (uiState.gameMode) {
+                                    GameMode.HUMAN_VS_AI -> {
+                                        // 人机模式下，只有当前玩家是X（假设X是人类）且不在加载中才能点击
+                                        uiState.currentPlayer == CellState.X && !uiState.isLoading && uiState.gameResult == GameResult.PLAYING
+                                    }
+                                    GameMode.HUMAN_VS_HUMAN_ONLINE -> {
+                                        // 在线模式保持原有逻辑
+                                        uiState.gameResult == GameResult.PLAYING && !uiState.isLoading
+                                    }
+                                }
+
+                                if (canClick) {
+                                    viewModel.handleIntent(TicTacToeIntent.ClickCell(row, col))
+                                }
                             }
                         ) {
+                            // 现有内容保持不变
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center

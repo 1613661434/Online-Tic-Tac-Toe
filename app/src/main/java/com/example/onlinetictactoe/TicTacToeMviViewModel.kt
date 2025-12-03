@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,14 +54,83 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    // 点击棋盘格子逻辑
+    // 在handleCellClick方法中，玩家落子后如果是人机模式，让AI自动落子
     private fun handleCellClick(row: Int, col: Int) {
+        val currentBoard = _uiState.value.board
+        // 新增检查：如果是AI回合或加载中，不处理点击
+        if (currentBoard[row][col] != CellState.EMPTY ||
+            _uiState.value.gameResult != GameResult.PLAYING ||
+            _uiState.value.isLoading) {
+            return
+        }
+
+        // 更新棋盘（玩家落子）
+        val newBoard = currentBoard.mapIndexed { r, rows ->
+            rows.mapIndexed { c, cell ->
+                if (r == row && c == col) _uiState.value.currentPlayer else cell
+            }
+        }
+
+        _uiState.update {
+            it.copy(
+                board = newBoard,
+                currentPlayer = if (it.currentPlayer == CellState.X) CellState.O else CellState.X
+            )
+        }
+
+        // 检查胜负
+        checkWinner()
+
+        // 如果是人机对战且游戏仍在进行中，让AI落子
+        if (_uiState.value.gameMode == GameMode.HUMAN_VS_AI &&
+            _uiState.value.gameResult == GameResult.PLAYING) {
+            // 这里不需要设置isLoading，因为aiMakeMove会处理
+            aiMakeMove()
+        }
+    }
+
+    // AI落子逻辑（简单的随机算法，可替换为更优算法）
+    private fun aiMakeMove() {
+        // AI开始思考，设置加载状态为true
+        _uiState.update { it.copy(isLoading = true) }
+
+        val board = _uiState.value.board
+        val emptyCells = mutableListOf<Pair<Int, Int>>()
+
+        // 找出所有空单元格
+        for (row in board.indices) {
+            for (col in board[row].indices) {
+                if (board[row][col] == CellState.EMPTY) {
+                    emptyCells.add(Pair(row, col))
+                }
+            }
+        }
+
+        // 如果有空格，随机选择一个落子
+        if (emptyCells.isNotEmpty()) {
+            val randomCell = emptyCells.random()
+            // 使用withContext确保在主线程更新UI
+            viewModelScope.launch(Dispatchers.Main) {
+                // 模拟AI思考延迟
+                delay(800)
+                handleAICellClick(randomCell.first, randomCell.second)
+                // AI落子完成，恢复加载状态
+                _uiState.update { it.copy(isLoading = false) }
+            }
+        } else {
+            // 没有空单元格，恢复加载状态
+            _uiState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    // AI专用的落子方法，不会触发AI再次落子
+    private fun handleAICellClick(row: Int, col: Int) {
         val currentBoard = _uiState.value.board
         if (currentBoard[row][col] != CellState.EMPTY || _uiState.value.gameResult != GameResult.PLAYING) {
             return
         }
 
-        // 更新棋盘
+        // 更新棋盘（AI落子）
         val newBoard = currentBoard.mapIndexed { r, rows ->
             rows.mapIndexed { c, cell ->
                 if (r == row && c == col) _uiState.value.currentPlayer else cell

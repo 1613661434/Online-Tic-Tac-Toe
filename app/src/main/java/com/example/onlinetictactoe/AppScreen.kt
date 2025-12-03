@@ -18,7 +18,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -73,12 +76,12 @@ fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         } else {
             Button(
                 onClick = {
-                    viewModel.handleIntent(TicTacToeIntent.StartOnlineMatch)
-                    viewModel.handleIntent(TicTacToeIntent.SelectGameMode(GameMode.HUMAN_VS_HUMAN_ONLINE))
+                    // 实际应用中应该让用户输入昵称
+                    viewModel.handleIntent(TicTacToeIntent.CreateRoom("Host"))
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("在线双人对战")
+                Text("创建房间")
             }
         }
 
@@ -89,6 +92,25 @@ fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                 color = Color.Red,
                 modifier = Modifier.padding(top = 16.dp)
             )
+        }
+        // 手动输入IP连接
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("或输入对方IP连接：")
+        val ipText = remember { mutableStateOf("") }
+        TextField(
+            value = ipText.value,
+            onValueChange = { ipText.value = it },
+            label = { Text("对方IP地址（如192.168.1.100）") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(
+            onClick = {
+                val roomLink = "http://${ipText.value}:8080/join?roomId=local_manual"
+                viewModel.handleIntent(TicTacToeIntent.JoinRoom(roomLink))
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("连接对方")
         }
     }
 }
@@ -187,6 +209,14 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("重置游戏")
+        }
+        if (uiState.roomLink != null) {
+            Button(
+                onClick = { viewModel.handleIntent(TicTacToeIntent.ShareRoomLink) },
+                modifier = Modifier.padding(top = 16.dp)
+            ) {
+                Text("分享房间链接")
+            }
         }
     }
 }

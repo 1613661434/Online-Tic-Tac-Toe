@@ -2,6 +2,7 @@ package com.example.onlinetictactoe
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
@@ -51,41 +52,58 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
             TicTacToeIntent.ClearGameRecords -> clearGameRecords()
             is TicTacToeIntent.SaveConfig -> saveConfig(intent.mode, intent.boardSize)
             TicTacToeIntent.LoadConfig -> loadConfig()
+            is TicTacToeIntent.CreateRoom -> createRoom(intent.playerName)
+            is TicTacToeIntent.JoinRoom -> joinRoom(intent.roomId)
+            TicTacToeIntent.ShareRoomLink -> shareRoomLink()
         }
     }
 
-    // 在handleCellClick方法中，玩家落子后如果是人机模式，让AI自动落子
     private fun handleCellClick(row: Int, col: Int) {
         val currentBoard = _uiState.value.board
-        // 新增检查：如果是AI回合或加载中，不处理点击
+        // 检查是否可落子（非空、游戏进行中、非加载中）
         if (currentBoard[row][col] != CellState.EMPTY ||
             _uiState.value.gameResult != GameResult.PLAYING ||
             _uiState.value.isLoading) {
             return
         }
 
-        // 更新棋盘（玩家落子）
+        // 更新本地棋盘（玩家落子）
         val newBoard = currentBoard.mapIndexed { r, rows ->
             rows.mapIndexed { c, cell ->
                 if (r == row && c == col) _uiState.value.currentPlayer else cell
             }
         }
 
-        _uiState.update {
-            it.copy(
-                board = newBoard,
-                currentPlayer = if (it.currentPlayer == CellState.X) CellState.O else CellState.X
-            )
-        }
+        val updatedState = _uiState.value.copy(
+            board = newBoard,
+            currentPlayer = if (_uiState.value.currentPlayer == CellState.X) CellState.O else CellState.X
+        )
+        _uiState.update { updatedState }
 
         // 检查胜负
         checkWinner()
 
-        // 如果是人机对战且游戏仍在进行中，让AI落子
-        if (_uiState.value.gameMode == GameMode.HUMAN_VS_AI &&
-            _uiState.value.gameResult == GameResult.PLAYING) {
-            // 这里不需要设置isLoading，因为aiMakeMove会处理
-            aiMakeMove()
+        // 新增：如果是人机对战模式，且游戏仍在进行中，触发AI落子
+        if (_uiState.value.gameMode == GameMode.HUMAN_VS_AI
+            && _uiState.value.gameResult == GameResult.PLAYING) {
+            aiMakeMove() // 调用AI落子逻辑
+        }
+
+        // 在线对战模式下，发送更新给对方
+        if (_uiState.value.gameMode == GameMode.HUMAN_VS_HUMAN_ONLINE) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val roomId = _uiState.value.currentRoom?.roomId ?: return@launch
+                val gameUpdate = GameUpdate(
+                    roomId = roomId,
+                    row = row,
+                    col = col,
+                    player = _uiState.value.currentPlayer, // 落子的玩家
+                    gameResult = _uiState.value.gameResult
+                )
+                // 发送到对方IP（从房间信息中获取）
+                val remoteIp = parseIpAndPortFromRoomId(_uiState.value.roomLink ?: "")?.first ?: return@launch
+                localNetworkService.sendGameUpdate(remoteIp, 8080, gameUpdate)
+            }
         }
     }
 
@@ -401,4 +419,137 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
             }
         }
     }
+
+    // 新增LocalNetworkService实例（全局唯一）
+    private val localNetworkService = LocalNetworkService { gameUpdate ->
+        // 接收对方的游戏更新
+        handleRemoteGameUpdate(gameUpdate)
+    }
+
+    // 处理对方发送的游戏更新
+    private fun handleRemoteGameUpdate(update: GameUpdate) {
+        // 验证房间ID是否匹配
+        if (update.roomId != _uiState.value.currentRoom?.roomId) return
+
+        viewModelScope.launch(Dispatchers.Main) {
+            // 更新本地棋盘（对方落子的位置）
+            val newBoard = _uiState.value.board.mapIndexed { r, rows ->
+                rows.mapIndexed { c, cell ->
+                    if (r == update.row && c == update.col) update.player else cell
+                }
+            }
+
+            // 更新状态（切换当前玩家，同步游戏结果）
+            _uiState.update {
+                it.copy(
+                    board = newBoard,
+                    currentPlayer = if (update.player == CellState.X) CellState.O else CellState.X,
+                    gameResult = update.gameResult
+                )
+            }
+
+            // 如果游戏结束，保存记录
+            if (update.gameResult != GameResult.PLAYING) {
+                saveGameRecordToMemory(update.gameResult)
+            }
+        }
+    }
+
+    private fun createRoom(playerName: String) {
+        _uiState.update { it.copy(isLoading = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 启动本地服务器（端口8080）
+                val localIp = localNetworkService.startServer(8080)
+                // 生成本地网络房间链接（包含IP和端口）
+                val roomId = "local_${System.currentTimeMillis()}" // 本地房间ID（简化）
+                val link = "http://$localIp:8080/join?roomId=$roomId"
+
+                // 创建本地房间信息
+                val localRoom = GameRoom(
+                    roomId = roomId,
+                    host = playerName,
+                    guest = null
+                )
+
+                withContext(Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(
+                            currentRoom = localRoom,
+                            roomLink = link,
+                            isLoading = false,
+                            currentScreen = Screen.GAME,
+                            // 本地玩家作为X（先手）
+                            currentPlayer = CellState.X
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(isLoading = false, errorMsg = "创建房间失败：${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    // 处理加入房间
+    private fun joinRoom(roomId: String) {
+        // 从DeepLink或输入中解析对方IP和端口（示例：http://192.168.1.100:8080/join?roomId=xxx）
+        val (remoteIp, port) = parseIpAndPortFromRoomId(roomId) ?: run {
+            _uiState.update { it.copy(errorMsg = "无效的房间链接", isLoading = false) }
+            return
+        }
+
+        _uiState.update { it.copy(isLoading = true) }
+        viewModelScope.launch(Dispatchers.Main) {
+            try {
+                // 加入房间时，本地玩家作为O（后手）
+                _uiState.update {
+                    it.copy(
+                        currentPlayer = CellState.O,
+                        currentRoom = GameRoom(roomId = roomId, host = "对方玩家", guest = "本地玩家"),
+                        isLoading = false,
+                        currentScreen = Screen.GAME
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isLoading = false, errorMsg = "加入房间失败：${e.message}")
+                }
+            }
+        }
+    }
+
+    // 辅助方法：从房间链接中解析IP和端口
+    private fun parseIpAndPortFromRoomId(roomLink: String): Pair<String, Int>? {
+        return try {
+            val url = roomLink.replace("http://", "")
+            val ipAndPort = url.split("/")[0]
+            val parts = ipAndPort.split(":")
+            Pair(parts[0], parts[1].toInt())
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    // 处理分享链接
+    private fun shareRoomLink() {
+        val link = _uiState.value.roomLink ?: return
+        // 触发系统分享功能
+        viewModelScope.launch(Dispatchers.Main) {
+            val context = getApplication<Application>().applicationContext
+            val shareIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                putExtra(Intent.EXTRA_TEXT, "来和我一起玩井字棋吧！链接：$link")
+                type = "text/plain"
+            }
+            context.startActivity(
+                Intent.createChooser(shareIntent, "分享房间链接")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+    }
+
 }

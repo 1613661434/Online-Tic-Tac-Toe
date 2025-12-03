@@ -17,6 +17,10 @@ sealed class TicTacToeIntent {
     // 记录操作（内存版）
     object LoadGameRecords : TicTacToeIntent() // 加载内存记录
     object ClearGameRecords : TicTacToeIntent() // 清空内存记录
+
+    data class CreateRoom(val playerName: String) : TicTacToeIntent() // 创建房间
+    data class JoinRoom(val roomId: String) : TicTacToeIntent() // 加入房间
+    object ShareRoomLink : TicTacToeIntent() // 分享房间链接
 }
 
 // 对战模式枚举

@@ -18,7 +18,10 @@ data class TicTacToeState(
     val gameRecords: List<String> = emptyList(),
     // 配置信息
     val boardSize: Int = 3, // 棋盘大小（默认3x3）
-    val savedMode: GameMode = GameMode.HUMAN_VS_AI // 保存的默认模式
+    val savedMode: GameMode = GameMode.HUMAN_VS_AI, // 保存的默认模式
+
+    val currentRoom: GameRoom? = null, // 当前房间信息
+    val roomLink: String? = null // 房间分享链接
 )
 
 // 页面枚举

@@ -3,7 +3,9 @@ package com.example.onlinetictactoe
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.POST
 import retrofit2.http.Query
 
 // 在线匹配响应模型（JSON解析用）
@@ -36,4 +38,20 @@ interface ApiService {
                 .create(ApiService::class.java)
         }
     }
+
+    // 在ApiService接口中添加
+    @POST("createRoom")
+    suspend fun createRoom(@Body request: CreateRoomRequest): Response<RoomResponse>
+
+    @POST("joinRoom")
+    suspend fun joinRoom(@Body request: JoinRoomRequest): Response<RoomResponse>
+
+    // 新增数据类
+    data class CreateRoomRequest(val hostName: String)
+    data class JoinRoomRequest(val roomId: String, val guestName: String)
+    data class RoomResponse(
+        val code: Int,
+        val msg: String,
+        val data: GameRoom?
+    )
 }

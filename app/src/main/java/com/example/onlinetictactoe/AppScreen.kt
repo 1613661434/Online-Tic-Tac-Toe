@@ -34,6 +34,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 // 首页
 @Composable
 fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
+    // 获取本地网络服务实例
+    val localNetworkService = remember {
+        LocalNetworkService(
+            onGameUpdate = {},  // 提供onGameUpdate参数的空实现
+            getCurrentRoomId = { null }  // 提供getCurrentRoomId参数的默认实现
+        )
+    }
+    // 初始化IP输入框值为本地IP
+    val ipText = remember { mutableStateOf(localNetworkService.getLocalIpAddress()) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -96,7 +105,6 @@ fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         // 手动输入IP连接
         Spacer(modifier = Modifier.height(16.dp))
         Text("或输入对方IP连接：")
-        val ipText = remember { mutableStateOf("") }
         TextField(
             value = ipText.value,
             onValueChange = { ipText.value = it },
@@ -150,6 +158,20 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
+        // 在GameScreen.kt的Column中添加
+        if (uiState.isWaitingForPlayer && uiState.gameMode == GameMode.HUMAN_VS_HUMAN_ONLINE) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator()
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("等待其他玩家加入...")
+                uiState.roomLink?.let { link ->
+                    Text("房间链接: $link", fontSize = 12.sp)
+                }
+            }
+        } else {
         // 棋盘
         Column {
             for (row in 0 until boardSize) {
@@ -169,9 +191,13 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                                         // 人机模式下，只有当前玩家是X（假设X是人类）且不在加载中才能点击
                                         uiState.currentPlayer == CellState.X && !uiState.isLoading && uiState.gameResult == GameResult.PLAYING
                                     }
+
                                     GameMode.HUMAN_VS_HUMAN_ONLINE -> {
-                                        // 在线模式保持原有逻辑
-                                        uiState.gameResult == GameResult.PLAYING && !uiState.isLoading
+                                        // 新增：只有房间满员且不在等待状态才能点击
+                                        !uiState.isWaitingForPlayer &&
+                                                uiState.currentRoom?.isFull == true &&
+                                                uiState.gameResult == GameResult.PLAYING &&
+                                                !uiState.isLoading
                                     }
                                 }
 
@@ -199,6 +225,7 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                     }
                 }
             }
+        }
         }
 
         Spacer(modifier = Modifier.height(24.dp))

@@ -45,8 +45,8 @@ fun MainScaffold(
                     }
                 },
                 actions = {
-                    // 替换过时的List图标
                     IconButton(onClick = {
+                        viewModel.handleIntent(TicTacToeIntent.ExitRoom)
                         viewModel.handleIntent(TicTacToeIntent.LoadGameRecords)
                         viewModel._uiState.update { it.copy(currentScreen = Screen.RECORD) }
                     }) {

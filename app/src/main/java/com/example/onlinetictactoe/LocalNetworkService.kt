@@ -16,13 +16,15 @@ import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation as ServerContentNegotiation
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
+import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.Enumeration
 
-class LocalNetworkService(private val onGameUpdate: (GameUpdate) -> Unit) {
+class LocalNetworkService(private val onGameUpdate: (GameUpdate) -> Unit,
+                          private val getCurrentRoomId: () -> String?) {
     private var server: ApplicationEngine? = null
 
     // 客户端初始化（使用客户端专用ContentNegotiation）
@@ -50,24 +52,30 @@ class LocalNetworkService(private val onGameUpdate: (GameUpdate) -> Unit) {
 
     // 启动本地服务器（返回服务器IP）
     fun startServer(port: Int = 8080): String {
-        // 直接在embeddedServer中配置Application，避免configure函数冲突
         server = embeddedServer(Netty, port = port, host = "0.0.0.0") {
-            // 安装服务器端内容协商插件
             install(ServerContentNegotiation) {
-                gson() // 与客户端保持一致的序列化方式
+                gson()
             }
-            // 配置路由
             routing {
                 post("/gameUpdate") {
-                    val update = call.receive<GameUpdate>() // 接收对方的游戏更新
-                    onGameUpdate(update) // 回调给ViewModel处理
+                    val update = call.receive<GameUpdate>()
+                    onGameUpdate(update)
                     call.respond(GameUpdateResponse(success = true))
                 }
+
+                // 添加房间检查接口
+                get("/checkRoom") {
+                    val roomId = call.request.queryParameters["roomId"]
+                    // 检查房间是否存在
+                    val exists = roomId == getCurrentRoomId()
+                    call.respond(RoomCheckResponse(exists))
+                }
             }
-        }.start(wait = false) // 非阻塞启动
+        }.start(wait = false)
         return getLocalIpAddress()
     }
-
+    // 添加数据类
+    data class RoomCheckResponse(val exists: Boolean)
     // 停止服务器
     fun stopServer() {
         server?.stop(gracePeriodMillis = 1000, timeoutMillis = 1000)

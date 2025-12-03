@@ -21,7 +21,8 @@ data class TicTacToeState(
     val savedMode: GameMode = GameMode.HUMAN_VS_AI, // 保存的默认模式
 
     val currentRoom: GameRoom? = null, // 当前房间信息
-    val roomLink: String? = null // 房间分享链接
+    val roomLink: String? = null, // 房间分享链接
+    val isWaitingForPlayer: Boolean = true, // 新增：是否在等待玩家加入
 )
 
 // 页面枚举

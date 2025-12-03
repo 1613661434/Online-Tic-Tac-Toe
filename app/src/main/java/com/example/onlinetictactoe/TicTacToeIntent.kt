@@ -20,6 +20,7 @@ sealed class TicTacToeIntent {
 
     data class CreateRoom(val playerName: String) : TicTacToeIntent() // 创建房间
     data class JoinRoom(val roomId: String) : TicTacToeIntent() // 加入房间
+    object ExitRoom : TicTacToeIntent() // 退出房间
     object ShareRoomLink : TicTacToeIntent() // 分享房间链接
 }
 

@@ -48,14 +48,6 @@ fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         )
     }
 
-    // 获取本地网络服务实例
-    val localNetworkService = remember {
-        LocalNetworkService(
-            onGameUpdate = {},  // 提供onGameUpdate参数的空实现
-            getCurrentRoomId = { null }  // 提供getCurrentRoomId参数的默认实现
-        )
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -244,17 +236,19 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                             onClick = {
                                 val canClick = when (uiState.gameMode) {
                                     GameMode.HUMAN_VS_AI -> {
-                                        // 人机模式逻辑保持不变
-                                        uiState.currentPlayer == CellState.X && !uiState.isLoading && uiState.gameResult == GameResult.PLAYING
+                                        uiState.currentPlayer == CellState.X &&
+                                                !uiState.isLoading &&
+                                                uiState.gameResult == GameResult.PLAYING
                                     }
                                     GameMode.HUMAN_VS_HUMAN_ONLINE -> {
                                         !uiState.isWaitingForPlayer &&
                                                 uiState.currentRoom?.isFull == true &&
                                                 uiState.gameResult == GameResult.PLAYING &&
                                                 !uiState.isLoading &&
-                                                // 核心：当前玩家是否匹配（房主O/访客X）
-                                                (uiState.currentPlayer == CellState.O && uiState.currentRoom?.host == "Host") ||  // 房主只能在O回合操作
-                                                (uiState.currentPlayer == CellState.X && uiState.currentRoom?.guest == "本地玩家")  // 访客只能在X回合操作
+                                                // 修复判断逻辑：本地玩家可以操作
+                                                // 注意：我们假设房主是"Host"，客人是"本地玩家"
+                                                (uiState.currentPlayer == CellState.X && uiState.currentRoom?.guest == "本地玩家") ||  // 客人只能在X回合操作
+                                                (uiState.currentPlayer == CellState.O && uiState.currentRoom?.host == "Host")        // 房主只能在O回合操作
                                     }
                                 }
 
@@ -263,7 +257,6 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                                 }
                             }
                         ) {
-                            // 现有内容保持不变
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center

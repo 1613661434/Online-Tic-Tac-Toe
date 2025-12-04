@@ -97,9 +97,7 @@ class LocalNetworkService(private val onGameUpdate: (GameUpdate) -> Unit,
 // 网络传输的数据类（落子位置、玩家、游戏结果等）
 data class GameUpdate(
     val roomId: String,
-    val row: Int,
-    val col: Int,
-    val player: CellState,
+    val oneWait: Boolean,
     val gameResult: GameResult,
     val board: List<List<CellState>>,  // 新增：完整棋盘状态
     val nextPlayer: CellState  // 新增：下一个要落子的玩家

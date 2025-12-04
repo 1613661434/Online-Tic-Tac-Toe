@@ -169,15 +169,19 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         }
 
         // 游戏状态
+// 游戏状态（修复后）
         Text(
-            text = when (uiState.gameResult) {
-                GameResult.PLAYING -> {
+            text = when {
+                // 优先判断：在线模式且等待玩家时，显示等待提示
+                uiState.isWaitingForPlayer && uiState.gameMode == GameMode.HUMAN_VS_HUMAN_ONLINE ->
+                    "等待其他玩家加入..."
+
+                // 游戏进行中
+                uiState.gameResult == GameResult.PLAYING -> {
                     val playerName = when (uiState.gameMode) {
-                        // 人机对战模式单独处理
                         GameMode.HUMAN_VS_AI -> {
                             if (uiState.currentPlayer == CellState.X) "你" else "AI"
                         }
-                        // 在线对战模式保持原有逻辑
                         GameMode.HUMAN_VS_HUMAN_ONLINE -> {
                             if (uiState.currentPlayer == CellState.X) {
                                 if (uiState.currentRoom?.host == "Host") "你" else "对方"
@@ -188,15 +192,24 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                     }
                     "当前回合：$playerName（${uiState.currentPlayer.name}）"
                 }
-                GameResult.WIN_X -> when (uiState.gameMode) {
+
+                // X获胜
+                uiState.gameResult == GameResult.WIN_X -> when (uiState.gameMode) {
                     GameMode.HUMAN_VS_AI -> "你赢了！"
                     GameMode.HUMAN_VS_HUMAN_ONLINE -> if (uiState.currentRoom?.host == "Host") "你赢了！" else "对方赢了！"
                 }
-                GameResult.WIN_O -> when (uiState.gameMode) {
+
+                // O获胜
+                uiState.gameResult == GameResult.WIN_O -> when (uiState.gameMode) {
                     GameMode.HUMAN_VS_AI -> "AI赢了！"
                     GameMode.HUMAN_VS_HUMAN_ONLINE -> if (uiState.currentRoom?.guest == "本地玩家") "你赢了！" else "对方赢了！"
                 }
-                GameResult.DRAW -> "平局！"
+
+                // 平局
+                uiState.gameResult == GameResult.DRAW -> "平局！"
+
+                // 兜底分支（防止枚举新增值导致报错）
+                else -> "游戏结束"
             },
             fontSize = 20.sp,
             fontWeight = FontWeight.Medium,
@@ -211,7 +224,6 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
             ) {
                 CircularProgressIndicator()
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("等待其他玩家加入...")
                 uiState.roomLink?.let { link ->
                     Text("房间链接: $link", fontSize = 12.sp)
                 }

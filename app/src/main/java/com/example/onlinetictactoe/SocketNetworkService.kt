@@ -11,7 +11,9 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 
@@ -35,25 +37,24 @@ class SocketNetworkService(
 
     private val gson = com.google.gson.Gson()
 
+    // 新增：保存客户端输出流（房主用，用于向加入方发送消息）
+    private val clientOutputs = mutableListOf<OutputStreamWriter>()
+
     // 获取本地IP地址
     fun getLocalIpAddress(): String {
-        return try {
-            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
-            while (interfaces.hasMoreElements()) {
-                val networkInterface = interfaces.nextElement()
-                val addresses = networkInterface.inetAddresses
-                while (addresses.hasMoreElements()) {
-                    val address = addresses.nextElement()
-                    if (!address.isLoopbackAddress && address.hostAddress?.indexOf(':') == -1) {
-                        return address.hostAddress
-                    }
+        val en = NetworkInterface.getNetworkInterfaces()
+        while (en.hasMoreElements()) {
+            val intf = en.nextElement()
+            val enumIpAddr = intf.inetAddresses
+            while (enumIpAddr.hasMoreElements()) {
+                val inetAddress = enumIpAddr.nextElement()
+                // 排除回环地址和IPv6地址
+                if (!inetAddress.isLoopbackAddress && inetAddress is Inet4Address) {
+                    return inetAddress.hostAddress ?: "127.0.0.1"
                 }
             }
-            "127.0.0.1"
-        } catch (e: Exception) {
-            Log.e(TAG, "获取本地IP失败", e)
-            "127.0.0.1"
         }
+        return "127.0.0.1"
     }
 
     // 启动Socket服务器
@@ -116,22 +117,41 @@ class SocketNetworkService(
     }
 
     // 发送游戏更新
+    // 发送游戏更新（区分客户端和服务器端发送逻辑）
     suspend fun sendGameUpdate(update: GameUpdate): Boolean {
         return withContext(Dispatchers.IO) {
-            try {
-                val socket = clientSocket ?: return@withContext false
-                val writer = OutputStreamWriter(socket.getOutputStream(), "UTF-8")
-                val json = gson.toJson(update)
-
-                writer.write("$json\n")
-                writer.flush()
-
-                Log.d(TAG, "发送游戏更新: ${update.roomId}")
-                true
-            } catch (e: Exception) {
-                Log.e(TAG, "发送游戏更新失败", e)
-                // 尝试重新连接
-                attemptReconnect()
+            // 客户端（加入方）发送：用clientSocket
+            if (clientSocket != null) {
+                try {
+                    val socket = clientSocket ?: return@withContext false
+                    val writer = OutputStreamWriter(socket.getOutputStream(), "UTF-8")
+                    val json = gson.toJson(update)
+                    writer.write("$json\n")
+                    writer.flush()
+                    Log.d(TAG, "客户端发送更新: ${update.roomId}")
+                    true
+                } catch (e: Exception) {
+                    Log.e(TAG, "客户端发送失败", e)
+                    attemptReconnect()
+                    false
+                }
+            }
+            // 服务器（房主）发送：用保存的clientOutputs
+            else if (serverSocket != null && clientOutputs.isNotEmpty()) {
+                try {
+                    val json = gson.toJson(update)
+                    clientOutputs.forEach { writer ->
+                        writer.write("$json\n")
+                        writer.flush()
+                    }
+                    Log.d(TAG, "房主发送更新: ${update.roomId}")
+                    true
+                } catch (e: Exception) {
+                    Log.e(TAG, "房主发送失败", e)
+                    false
+                }
+            } else {
+                Log.w(TAG, "无可用连接发送消息")
                 false
             }
         }
@@ -175,38 +195,41 @@ class SocketNetworkService(
     // 处理传入连接
     private fun handleIncomingConnection(socket: Socket) {
         scope.launch {
+            var writer: OutputStreamWriter? = null
             try {
                 val reader = BufferedReader(InputStreamReader(socket.getInputStream(), "UTF-8"))
-                val writer = OutputStreamWriter(socket.getOutputStream(), "UTF-8")
+                writer = OutputStreamWriter(socket.getOutputStream(), "UTF-8")
+
+                // 新增：保存客户端输出流（房主需要用它发消息）
+                clientOutputs.add(writer)
 
                 while (true) {
                     val message = reader.readLine() ?: break
-
                     Log.d(TAG, "收到消息: $message")
 
                     if (message.startsWith("CHECK:")) {
-                        // 处理房间检查
+                        // 处理房间检查（原有逻辑不变）
                         val json = message.removePrefix("CHECK:")
                         val request = gson.fromJson(json, RoomCheckRequest::class.java)
-
                         val exists = request.roomId == getCurrentRoomId()
                         val response = RoomCheckResponse(exists)
-
                         writer.write("${gson.toJson(response)}\n")
                         writer.flush()
                     } else {
-                        // 处理游戏更新
+                        // 处理游戏更新（原有逻辑不变）
                         try {
                             val update = gson.fromJson(message, GameUpdate::class.java)
                             onGameUpdate(update)
                         } catch (e: Exception) {
-                            Log.e(TAG, "解析游戏更新失败", e)
+                            Log.e(TAG, "解析更新失败", e)
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "处理连接异常", e)
+                Log.e(TAG, "连接异常", e)
             } finally {
+                // 新增：移除失效的输出流
+                writer?.let { clientOutputs.remove(it) }
                 try {
                     socket.close()
                 } catch (e: Exception) {
@@ -259,6 +282,9 @@ class SocketNetworkService(
 
             serverSocket?.close()
             serverSocket = null
+
+            // 新增：清空客户端输出流
+            clientOutputs.clear()
 
             Log.d(TAG, "断开所有连接")
         } catch (e: Exception) {

@@ -121,8 +121,8 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                 val gameUpdate = GameUpdate(
                     roomId = roomId,
                     type = UpdateType.MOVE,
-                    board = currentState.board, // 发送更新后的棋盘
-                    currentPlayer = currentState.currentPlayer, // 发送下一个应该落子的玩家
+                    board = newBoard, // 发送最新棋盘（而非currentState.board）
+                    currentPlayer = nextPlayer, // 关键：发送下一个玩家，而非当前玩家
                     gameResult = currentState.gameResult
                 )
 

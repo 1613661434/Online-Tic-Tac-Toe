@@ -256,17 +256,15 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                                         }
 
                                         GameMode.HUMAN_VS_HUMAN_ONLINE -> {
-                                            // 在线对战
                                             !uiState.isWaitingForPlayer &&
                                                     uiState.currentRoom?.isFull == true &&
                                                     uiState.gameResult == GameResult.PLAYING &&
                                                     !uiState.isLoading &&
-                                                    // 检查是否是当前用户的回合
-                                                    when {
-                                                        isHost && uiState.currentPlayer == CellState.X -> true
-                                                        isGuest && uiState.currentPlayer == CellState.O -> true
-                                                        else -> false
-                                                    }
+                                                    // 修复房主/客人的回合判断
+                                                    (
+                                                            (isHost && uiState.currentPlayer == CellState.X) ||
+                                                                    (isGuest && uiState.currentPlayer == CellState.O)
+                                                            )
                                         }
                                     }
 

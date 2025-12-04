@@ -134,36 +134,114 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    // AI落子逻辑（简单的随机算法，可替换为更优算法）
+    // 优化后AI落子逻辑（优先堵赢路、找赢路，不做复杂递归）
     private fun aiMakeMove() {
-        // AI开始思考，设置加载状态为true
         _uiState.update { it.copy(myTurn = false) }
-
         val board = _uiState.value.board
+        val boardSize = _uiState.value.boardSize
         val emptyCells = mutableListOf<Pair<Int, Int>>()
 
-        // 找出所有空单元格
-        for (row in board.indices) {
-            for (col in board[row].indices) {
+        // 第一步：找AI能一步赢的位置（O连3）
+        val winningMove = findWinningMove(board, boardSize, CellState.O)
+        if (winningMove != null) {
+            executeAIMove(winningMove.first, winningMove.second)
+            return
+        }
+
+        // 第二步：堵人类能一步赢的位置（X连3）
+        val blockingMove = findWinningMove(board, boardSize, CellState.X)
+        if (blockingMove != null) {
+            executeAIMove(blockingMove.first, blockingMove.second)
+            return
+        }
+
+        // 第三步：找空单元格（没有赢/堵的机会，随机选）
+        for (row in 0 until boardSize) {
+            for (col in 0 until boardSize) {
                 if (board[row][col] == CellState.EMPTY) {
                     emptyCells.add(Pair(row, col))
                 }
             }
         }
 
-        // 如果有空格，随机选择一个落子
         if (emptyCells.isNotEmpty()) {
-            val randomCell = emptyCells.random()
-            // 使用withContext确保在主线程更新UI
-            viewModelScope.launch(Dispatchers.Main) {
-                // 模拟AI思考延迟
-                delay(800)
-                handleAICellClick(randomCell.first, randomCell.second)
-                // AI落子完成，恢复加载状态
-                _uiState.update { it.copy(myTurn = true) }
-            }
+            val randomMove = emptyCells.random()
+            executeAIMove(randomMove.first, randomMove.second)
         } else {
-            // 没有空单元格，恢复加载状态
+            _uiState.update { it.copy(myTurn = true) }
+        }
+    }
+
+    // 辅助：找“一步赢”的位置（某方再落一子就能赢）
+    private fun findWinningMove(
+        board: List<List<CellState>>,
+        boardSize: Int,
+        player: CellState
+    ): Pair<Int, Int>? {
+        // 遍历所有空单元格，模拟落子后检查是否赢
+        for (row in 0 until boardSize) {
+            for (col in 0 until boardSize) {
+                if (board[row][col] == CellState.EMPTY) {
+                    val tempBoard = board.mapIndexed { r, rows ->
+                        rows.mapIndexed { c, cell ->
+                            if (r == row && c == col) player else cell
+                        }
+                    }
+                    if (isPlayerWin(tempBoard, boardSize, player)) {
+                        return Pair(row, col)
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    // 辅助：检查某方是否赢了
+    private fun isPlayerWin(
+        board: List<List<CellState>>,
+        boardSize: Int,
+        player: CellState
+    ): Boolean {
+        // 检查行
+        for (row in 0 until boardSize) {
+            if (board[row].all { it == player }) return true
+        }
+        // 检查列
+        for (col in 0 until boardSize) {
+            var allSame = true
+            for (row in 0 until boardSize) {
+                if (board[row][col] != player) {
+                    allSame = false
+                    break
+                }
+            }
+            if (allSame) return true
+        }
+        // 检查对角线（左上→右下）
+        var diagonalWin = true
+        for (i in 0 until boardSize) {
+            if (board[i][i] != player) {
+                diagonalWin = false
+                break
+            }
+        }
+        if (diagonalWin) return true
+        // 检查对角线（右上→左下）
+        diagonalWin = true
+        for (i in 0 until boardSize) {
+            if (board[i][boardSize - 1 - i] != player) {
+                diagonalWin = false
+                break
+            }
+        }
+        return diagonalWin
+    }
+
+    // 辅助：执行AI落子（统一逻辑，避免重复）
+    private fun executeAIMove(row: Int, col: Int) {
+        viewModelScope.launch(Dispatchers.Main) {
+            delay(800) // 模拟思考延迟
+            handleAICellClick(row, col)
             _uiState.update { it.copy(myTurn = true) }
         }
     }

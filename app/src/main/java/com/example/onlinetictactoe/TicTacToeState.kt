@@ -13,7 +13,6 @@ data class TicTacToeState(
     val errorMsg: String? = null, // 错误信息
     // 在线匹配状态
     val isMatching: Boolean = false,
-    val matchedOpponent: String? = null, // 匹配到的对手
     // 游戏记录（内存版：格式"时间 | 模式 | 结果"）
     val gameRecords: List<String> = emptyList(),
     // 配置信息
@@ -22,7 +21,9 @@ data class TicTacToeState(
 
     val currentRoom: GameRoom? = null, // 当前房间信息
     val roomLink: String? = null, // 房间分享链接
-    val isWaitingForPlayer: Boolean = true, // 新增：是否在等待玩家加入
+    val isWaitingForPlayer: Boolean = false, // 新增：是否在等待玩家加入
+    val myTurn: Boolean =true,
+    val isHost: Boolean = true
 )
 
 // 页面枚举

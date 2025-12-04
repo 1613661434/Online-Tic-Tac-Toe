@@ -98,7 +98,8 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
 
         val updatedState = _uiState.value.copy(
             board = newBoard,
-            currentPlayer = nextPlayer
+            currentPlayer = nextPlayer,
+            myTurn = false
         )
         _uiState.update { updatedState }
 
@@ -123,7 +124,8 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                     type = UpdateType.MOVE,
                     board = newBoard, // 发送最新棋盘（而非currentState.board）
                     currentPlayer = nextPlayer, // 关键：发送下一个玩家，而非当前玩家
-                    gameResult = currentState.gameResult
+                    gameResult = currentState.gameResult,
+                    yourTurn = true
                 )
 
                 // 发送更新
@@ -135,7 +137,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
     // AI落子逻辑（简单的随机算法，可替换为更优算法）
     private fun aiMakeMove() {
         // AI开始思考，设置加载状态为true
-        _uiState.update { it.copy(isLoading = true) }
+        _uiState.update { it.copy(myTurn = false) }
 
         val board = _uiState.value.board
         val emptyCells = mutableListOf<Pair<Int, Int>>()
@@ -158,11 +160,11 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                 delay(800)
                 handleAICellClick(randomCell.first, randomCell.second)
                 // AI落子完成，恢复加载状态
-                _uiState.update { it.copy(isLoading = false) }
+                _uiState.update { it.copy(myTurn = true) }
             }
         } else {
             // 没有空单元格，恢复加载状态
-            _uiState.update { it.copy(isLoading = false) }
+            _uiState.update { it.copy(myTurn = true) }
         }
     }
 
@@ -196,20 +198,13 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         // 重置棋盘
         val newBoard = List(_uiState.value.boardSize) { List(_uiState.value.boardSize) { CellState.EMPTY } }
 
-        // 重置为初始玩家（房主X先手，客人O后手）
-        val initialPlayer = if (_uiState.value.currentRoom?.host == "Host" ||
-            _uiState.value.currentRoom?.host == "房主") {
-            CellState.X // 房主先手
-        } else {
-            CellState.O // 客人后手
-        }
-
         val updatedState = _uiState.value.copy(
             board = newBoard,
-            currentPlayer = initialPlayer,
+            currentPlayer = CellState.X,
             gameResult = GameResult.PLAYING,
             errorMsg = null,
-            isLoading = false
+            isLoading = false,
+            myTurn = true
         )
         _uiState.update { updatedState }
 
@@ -222,8 +217,9 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                     roomId = roomId,
                     type = UpdateType.RESET,
                     board = updatedState.board,
-                    currentPlayer = updatedState.currentPlayer,
-                    gameResult = GameResult.PLAYING
+                    currentPlayer = CellState.O,
+                    gameResult = GameResult.PLAYING,
+                    yourTurn = false
                 )
 
                 socketNetworkService.sendGameUpdate(resetUpdate)
@@ -347,7 +343,6 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                                 it.copy(
                                     isMatching = false,
                                     isLoading = false,
-                                    matchedOpponent = matchResponse.data.opponent,
                                     currentScreen = Screen.GAME
                                 )
                             }
@@ -421,6 +416,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
             }
         }
     }
+
     // 加载配置文件
     private fun loadConfig() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -484,9 +480,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                     _uiState.update {
                         it.copy(
                             isWaitingForPlayer = false,
-                            matchedOpponent = update.playerName ?: "客人",
                             currentRoom = it.currentRoom?.copy(
-                                guest = update.playerName ?: "客人",
                                 isFull = true
                             )
                         )
@@ -499,7 +493,8 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                         it.copy(
                             board = update.board,
                             currentPlayer = update.currentPlayer,  // 使用对方发送的下一个玩家
-                            gameResult = update.gameResult
+                            gameResult = update.gameResult,
+                            myTurn = update.yourTurn
                         )
                     }
 
@@ -515,7 +510,8 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                         it.copy(
                             board = update.board,
                             currentPlayer = update.currentPlayer,  // 同步当前玩家
-                            gameResult = GameResult.PLAYING
+                            gameResult = GameResult.PLAYING,
+                            myTurn = update.yourTurn
                         )
                     }
                 }
@@ -528,7 +524,6 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                             currentRoom = null,
                             roomLink = null,
                             isWaitingForPlayer = false,
-                            matchedOpponent = null
                         )
                     }
                     socketNetworkService.disconnect()
@@ -573,9 +568,8 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                             gameMode = GameMode.HUMAN_VS_HUMAN_ONLINE,
                             isWaitingForPlayer = true,
                             gameResult = GameResult.PLAYING,
+                            myTurn = true,
                             board = List(currentBoardSize) { List(currentBoardSize) { CellState.EMPTY } },
-                            // 房主的对手信息设置为空
-                            matchedOpponent = null
                         )
                     }
                 }
@@ -595,12 +589,12 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
     // 处理加入房间
     private fun joinRoom(roomLink: String) {
         val (remoteIp, port, roomId) = parseIpAndPortFromRoomId(roomLink) ?: run {
-            _uiState.update { it.copy(errorMsg = "无效的房间链接格式", isLoading = false) }
+            _uiState.update { it.copy(errorMsg = "无效的房间链接格式", isLoading = false, isHost = false) }
             return
         }
 
         if (remoteIp.isNullOrBlank() || port == null || roomId.isNullOrBlank()) {
-            _uiState.update { it.copy(errorMsg = "链接缺少IP、端口或房间号", isLoading = false) }
+            _uiState.update { it.copy(errorMsg = "链接缺少IP、端口或房间号", isLoading = false, isHost = false) }
             return
         }
 
@@ -617,7 +611,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                             it.copy(
                                 isLoading = false,
                                 errorMsg = "房间不存在或已关闭",
-                                currentScreen = Screen.HOME
+                                currentScreen = Screen.HOME,
                             )
                         }
                     }
@@ -645,10 +639,10 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                     roomId = roomId,
                     type = UpdateType.JOIN,
                     board = List(_uiState.value.boardSize) { List(_uiState.value.boardSize) { CellState.EMPTY } },
-                    currentPlayer = CellState.O, // 客人是 O（后手）
+                    currentPlayer = CellState.O, // 房主是 O
                     gameResult = GameResult.PLAYING,
-                    playerName = "客人",
-                    isHost = false
+                    isHost = true,
+                    yourTurn = true
                 )
 
                 socketNetworkService.sendGameUpdate(joinUpdate)
@@ -659,8 +653,8 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                             currentPlayer = CellState.O, // 客人是 O
                             currentRoom = GameRoom(
                                 roomId = roomId,
-                                host = "房主",  // 对方是房主
-                                guest = "客人",  // 自己是客人
+                                host = "对方",
+                                guest = "自己",
                                 isFull = true
                             ),
                             isLoading = false,
@@ -669,8 +663,8 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                             gameMode = GameMode.HUMAN_VS_HUMAN_ONLINE,
                             board = List(state.boardSize) { List(state.boardSize) { CellState.EMPTY } },
                             gameResult = GameResult.PLAYING,
-                            // 客人的对手信息是房主
-                            matchedOpponent = "房主"
+                            myTurn = false,
+                            isHost = false
                         )
                     }
                 }
@@ -697,7 +691,8 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                     type = UpdateType.DISCONNECT,
                     board = _uiState.value.board,
                     currentPlayer = _uiState.value.currentPlayer,
-                    gameResult = _uiState.value.gameResult
+                    gameResult = _uiState.value.gameResult,
+                    yourTurn = false
                 )
                 socketNetworkService.sendGameUpdate(disconnectUpdate)
             }
@@ -710,7 +705,6 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                         currentRoom = null,
                         roomLink = null,
                         isWaitingForPlayer = false,
-                        matchedOpponent = null
                     )
                 }
             }

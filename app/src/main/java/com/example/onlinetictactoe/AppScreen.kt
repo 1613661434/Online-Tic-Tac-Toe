@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.update
 
 // 首页
 @Composable
@@ -144,9 +145,8 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
     val boardSize = uiState.boardSize
 
-    // 判断当前用户是房主还是客人
-    val isHost = uiState.currentRoom?.host == "Host" || uiState.currentRoom?.host == "房主"
-    val isGuest = uiState.currentRoom?.guest == "本地玩家" || uiState.currentRoom?.guest == "客人"
+    // 我的回合
+    val isMyTurn=uiState.myTurn
 
     Column(
         modifier = Modifier
@@ -155,15 +155,6 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // 对手信息
-        uiState.matchedOpponent?.let {
-            Text(
-                text = "对手：$it",
-                fontSize = 18.sp,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-        }
-
         // 游戏状态 - 修复后的显示逻辑
         Text(
             text = when {
@@ -180,12 +171,6 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                         if (currentPlayer == CellState.X) "你的回合 (X)" else "AI的回合 (O)"
                     } else {
                         // 在线对战
-                        val isMyTurn = when {
-                            isHost && currentPlayer == CellState.X -> true
-                            isGuest && currentPlayer == CellState.O -> true
-                            else -> false
-                        }
-
                         if (isMyTurn) {
                             "你的回合 ($playerSymbol)"
                         } else {
@@ -199,7 +184,7 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                     if (uiState.gameMode == GameMode.HUMAN_VS_AI) {
                         "你赢了！"
                     } else {
-                        if (isHost) "你赢了！" else "对方赢了！"
+                        if (uiState.isHost) "你赢了！" else "对方赢了！"
                     }
                 }
 
@@ -207,7 +192,7 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                     if (uiState.gameMode == GameMode.HUMAN_VS_AI) {
                         "AI赢了！"
                     } else {
-                        if (isGuest) "你赢了！" else "对方赢了！"
+                        if (uiState.isHost) "你赢了！" else "对方赢了！"
                     }
                 }
 
@@ -249,22 +234,14 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                                 onClick = {
                                     val canClick = when (uiState.gameMode) {
                                         GameMode.HUMAN_VS_AI -> {
-                                            // 人机对战：只有玩家可以点击
-                                            uiState.currentPlayer == CellState.X &&
-                                                    !uiState.isLoading &&
-                                                    uiState.gameResult == GameResult.PLAYING
+                                            isMyTurn && uiState.gameResult == GameResult.PLAYING
                                         }
 
                                         GameMode.HUMAN_VS_HUMAN_ONLINE -> {
                                             !uiState.isWaitingForPlayer &&
                                                     uiState.currentRoom?.isFull == true &&
                                                     uiState.gameResult == GameResult.PLAYING &&
-                                                    !uiState.isLoading &&
-                                                    // 修复房主/客人的回合判断
-                                                    (
-                                                            (isHost && uiState.currentPlayer == CellState.X) ||
-                                                                    (isGuest && uiState.currentPlayer == CellState.O)
-                                                            )
+                                                    !uiState.isLoading && isMyTurn
                                         }
                                     }
 
@@ -301,15 +278,17 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         Spacer(modifier = Modifier.height(24.dp))
 
         // 重置按钮
-        Button(
-            onClick = { viewModel.handleIntent(TicTacToeIntent.ResetGame) },
-            enabled = !uiState.isLoading,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("重置游戏")
+        if(!uiState.isWaitingForPlayer) {
+            Button(
+                onClick = { viewModel.handleIntent(TicTacToeIntent.ResetGame) },
+                enabled = !uiState.isLoading,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("重置游戏")
+            }
         }
 
-        if (uiState.roomLink != null) {
+        if (uiState.gameMode == GameMode.HUMAN_VS_HUMAN_ONLINE&&uiState.roomLink != null) {
             Button(
                 onClick = { viewModel.handleIntent(TicTacToeIntent.ShareRoomLink) },
                 modifier = Modifier.padding(top = 16.dp)
@@ -319,13 +298,13 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         }
 
         // 退出房间按钮
-        if (uiState.gameMode == GameMode.HUMAN_VS_HUMAN_ONLINE) {
-            Button(
-                onClick = { viewModel.handleIntent(TicTacToeIntent.ExitRoom) },
+        Button(
+                onClick = { viewModel.handleIntent(TicTacToeIntent.ExitRoom)
+                    viewModel._uiState.update { it.copy(currentScreen = Screen.HOME)}
+                          },
                 modifier = Modifier.padding(top = 16.dp)
             ) {
                 Text("退出房间")
-            }
         }
     }
 }

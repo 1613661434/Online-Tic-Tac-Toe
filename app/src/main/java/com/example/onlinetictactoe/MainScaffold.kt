@@ -38,7 +38,7 @@ fun MainScaffold(
                 ),
                 navigationIcon = {
                     IconButton(onClick = {
-                        viewModel.handleIntent(TicTacToeIntent.SelectGameMode(GameMode.HUMAN_VS_AI))
+                        viewModel.handleIntent(TicTacToeIntent.ExitRoom)
                         viewModel._uiState.update { it.copy(currentScreen = Screen.HOME) }
                     }) {
                         Icon(Icons.Default.Home, contentDescription = "Home")

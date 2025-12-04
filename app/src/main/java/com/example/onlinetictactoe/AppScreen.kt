@@ -172,15 +172,30 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         Text(
             text = when (uiState.gameResult) {
                 GameResult.PLAYING -> {
-                    val playerName = if (uiState.currentPlayer == CellState.X) {
-                        if (uiState.currentRoom?.host == "Host") "你" else "对方"
-                    } else {
-                        if (uiState.currentRoom?.guest == "本地玩家") "你" else "对方"
+                    val playerName = when (uiState.gameMode) {
+                        // 人机对战模式单独处理
+                        GameMode.HUMAN_VS_AI -> {
+                            if (uiState.currentPlayer == CellState.X) "你" else "AI"
+                        }
+                        // 在线对战模式保持原有逻辑
+                        GameMode.HUMAN_VS_HUMAN_ONLINE -> {
+                            if (uiState.currentPlayer == CellState.X) {
+                                if (uiState.currentRoom?.host == "Host") "你" else "对方"
+                            } else {
+                                if (uiState.currentRoom?.guest == "本地玩家") "你" else "对方"
+                            }
+                        }
                     }
                     "当前回合：$playerName（${uiState.currentPlayer.name}）"
                 }
-                GameResult.WIN_X -> if (uiState.currentRoom?.host == "Host") "你赢了！" else "对方赢了！"
-                GameResult.WIN_O -> if (uiState.currentRoom?.guest == "本地玩家") "你赢了！" else "对方赢了！"
+                GameResult.WIN_X -> when (uiState.gameMode) {
+                    GameMode.HUMAN_VS_AI -> "你赢了！"
+                    GameMode.HUMAN_VS_HUMAN_ONLINE -> if (uiState.currentRoom?.host == "Host") "你赢了！" else "对方赢了！"
+                }
+                GameResult.WIN_O -> when (uiState.gameMode) {
+                    GameMode.HUMAN_VS_AI -> "AI赢了！"
+                    GameMode.HUMAN_VS_HUMAN_ONLINE -> if (uiState.currentRoom?.guest == "本地玩家") "你赢了！" else "对方赢了！"
+                }
                 GameResult.DRAW -> "平局！"
             },
             fontSize = 20.sp,
@@ -221,14 +236,13 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                                         uiState.currentPlayer == CellState.X && !uiState.isLoading && uiState.gameResult == GameResult.PLAYING
                                     }
                                     GameMode.HUMAN_VS_HUMAN_ONLINE -> {
-                                        // 在线对战权限控制：房间满员 + 游戏进行中 + 是当前玩家的回合
                                         !uiState.isWaitingForPlayer &&
                                                 uiState.currentRoom?.isFull == true &&
                                                 uiState.gameResult == GameResult.PLAYING &&
                                                 !uiState.isLoading &&
-                                                // 核心：判断当前回合是否为本地玩家（房主是X，客人是O）
-                                                (uiState.currentPlayer == CellState.X && uiState.currentRoom?.host == "Host") ||  // 房主只能在X回合操作
-                                                (uiState.currentPlayer == CellState.O && uiState.currentRoom?.guest == "本地玩家")  // 客人只能在O回合操作
+                                                // 核心：当前玩家是否匹配（房主O/访客X）
+                                                (uiState.currentPlayer == CellState.O && uiState.currentRoom?.host == "Host") ||  // 房主只能在O回合操作
+                                                (uiState.currentPlayer == CellState.X && uiState.currentRoom?.guest == "本地玩家")  // 访客只能在X回合操作
                                     }
                                 }
 

@@ -99,16 +99,16 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         if (_uiState.value.gameMode == GameMode.HUMAN_VS_HUMAN_ONLINE) {
             viewModelScope.launch(Dispatchers.IO) {
                 val roomId = _uiState.value.currentRoom?.roomId ?: return@launch
-                // 使用当前落子的玩家（修复玩家标识错误）
-                val playerWhoMoved = if (_uiState.value.currentPlayer == CellState.X) CellState.X else CellState.O
-                val gameResult = _uiState.value.gameResult
-
+                val currentState = _uiState.value
+                // 构建包含完整棋盘和下一玩家的更新
                 val gameUpdate = GameUpdate(
                     roomId = roomId,
                     row = row,
                     col = col,
-                    player = playerWhoMoved,  // 发送实际落子的玩家
-                    gameResult = gameResult
+                    player = currentState.currentPlayer,  // 当前落子的玩家（已切换前的）
+                    gameResult = currentState.gameResult,
+                    board = currentState.board,  // 发送完整棋盘
+                    nextPlayer = if (currentState.currentPlayer == CellState.X) CellState.O else CellState.X  // 下一玩家
                 )
 
                 // 获取对方的IP和端口（修复连接信息获取方式）
@@ -457,6 +457,19 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         if (update.roomId != _uiState.value.currentRoom?.roomId) return
 
         viewModelScope.launch(Dispatchers.Main) {
+            // 处理"玩家加入"的特殊通知（用row=-1, col=-1标识）
+            if (update.row == -1 && update.col == -1) {
+                // 房主收到加入通知：更新为游戏状态，结束等待
+                _uiState.update {
+                    it.copy(
+                        isWaitingForPlayer = false,
+                        matchedOpponent = "对方玩家",  // 显示对手信息
+                        currentRoom = it.currentRoom?.copy(isFull = true)  // 标记房间已满
+                    )
+                }
+                return@launch  // 结束处理，不更新棋盘
+            }
+
             // 处理对方落子更新
             val newBoard = _uiState.value.board.mapIndexed { r, rows ->
                 rows.mapIndexed { c, cell ->
@@ -464,13 +477,12 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                 }
             }
 
-            // 更新游戏状态（切换当前玩家为本地玩家）
+            // 处理正常落子更新：直接使用对方发送的完整棋盘
             _uiState.update {
                 it.copy(
-                    board = newBoard,
-                    currentPlayer = if (update.player == CellState.X) CellState.O else CellState.X,
+                    board = update.board,  // 同步完整棋盘
+                    currentPlayer = update.nextPlayer,  // 更新为下一玩家
                     gameResult = update.gameResult,
-                    // 确保UI重绘
                     isLoading = false
                 )
             }
@@ -510,7 +522,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                                 roomLink = link,  // 保存新格式链接
                                 isLoading = false,
                                 currentScreen = Screen.GAME,
-                                currentPlayer = CellState.X,
+                                currentPlayer = CellState.O,
                                 gameMode = GameMode.HUMAN_VS_HUMAN_ONLINE,
                                 isWaitingForPlayer = true,
                                 gameResult = GameResult.PLAYING
@@ -579,7 +591,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                         val currentBoardSize = _uiState.value.boardSize
                         _uiState.update { state ->
                             state.copy(
-                                currentPlayer = CellState.O,  // 加入者固定为O
+                                currentPlayer = CellState.X,  // 加入者固定为X
                                 currentRoom = GameRoom(
                                     roomId = roomId,
                                     host = "对方玩家",
@@ -602,7 +614,11 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                         row = -1,  // 特殊值标识加入通知
                         col = -1,
                         player = CellState.O,  // 客人固定为O
-                        gameResult = GameResult.PLAYING
+                        gameResult = GameResult.PLAYING,
+                        // 补充空棋盘（使用当前棋盘大小）
+                        board = List(_uiState.value.boardSize) { List(_uiState.value.boardSize) { CellState.EMPTY } },
+                        // 补充下一个玩家（初始为X）
+                        nextPlayer = CellState.X
                     )
                     localNetworkService.sendGameUpdate(remoteIp, port, joinUpdate)
                 } else {

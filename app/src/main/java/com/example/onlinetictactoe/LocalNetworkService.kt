@@ -100,7 +100,9 @@ data class GameUpdate(
     val row: Int,
     val col: Int,
     val player: CellState,
-    val gameResult: GameResult
+    val gameResult: GameResult,
+    val board: List<List<CellState>>,  // 新增：完整棋盘状态
+    val nextPlayer: CellState  // 新增：下一个要落子的玩家
 )
 
 // 服务器响应数据类

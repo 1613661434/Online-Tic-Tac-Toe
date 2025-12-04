@@ -93,9 +93,12 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
             }
         }
 
+        // 切换下一个玩家
+        val nextPlayer = if (_uiState.value.currentPlayer == CellState.X) CellState.O else CellState.X
+
         val updatedState = _uiState.value.copy(
             board = newBoard,
-            currentPlayer = if (_uiState.value.currentPlayer == CellState.X) CellState.O else CellState.X
+            currentPlayer = nextPlayer
         )
         _uiState.update { updatedState }
 
@@ -114,12 +117,12 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                 val currentState = _uiState.value
                 val roomId = currentState.currentRoom?.roomId ?: return@launch
 
-                // 构建游戏更新
+                // 构建游戏更新 - 发送更新后的棋盘和下一个玩家
                 val gameUpdate = GameUpdate(
                     roomId = roomId,
                     type = UpdateType.MOVE,
-                    board = currentState.board,
-                    currentPlayer = if (currentState.currentPlayer == CellState.X) CellState.O else CellState.X,
+                    board = currentState.board, // 发送更新后的棋盘
+                    currentPlayer = currentState.currentPlayer, // 发送下一个应该落子的玩家
                     gameResult = currentState.gameResult
                 )
 
@@ -190,11 +193,23 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
 
     // 重置游戏（修复boardSize引用冲突）
     private fun resetGame() {
+        // 重置棋盘
+        val newBoard = List(_uiState.value.boardSize) { List(_uiState.value.boardSize) { CellState.EMPTY } }
+
+        // 重置为初始玩家（房主X先手，客人O后手）
+        val initialPlayer = if (_uiState.value.currentRoom?.host == "Host" ||
+            _uiState.value.currentRoom?.host == "房主") {
+            CellState.X // 房主先手
+        } else {
+            CellState.O // 客人后手
+        }
+
         val updatedState = _uiState.value.copy(
-            board = List(_uiState.value.boardSize) { List(_uiState.value.boardSize) { CellState.EMPTY } },
-            currentPlayer = CellState.X,
+            board = newBoard,
+            currentPlayer = initialPlayer,
             gameResult = GameResult.PLAYING,
-            errorMsg = null
+            errorMsg = null,
+            isLoading = false
         )
         _uiState.update { updatedState }
 
@@ -469,9 +484,9 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                     _uiState.update {
                         it.copy(
                             isWaitingForPlayer = false,
-                            matchedOpponent = update.playerName ?: "对方玩家",
+                            matchedOpponent = update.playerName ?: "客人",
                             currentRoom = it.currentRoom?.copy(
-                                guest = update.playerName,
+                                guest = update.playerName ?: "客人",
                                 isFull = true
                             )
                         )
@@ -483,7 +498,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                     _uiState.update {
                         it.copy(
                             board = update.board,
-                            currentPlayer = update.currentPlayer,
+                            currentPlayer = update.currentPlayer,  // 使用对方发送的下一个玩家
                             gameResult = update.gameResult
                         )
                     }
@@ -495,11 +510,11 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                 }
 
                 UpdateType.RESET -> {
-                    // 重置游戏
+                    // 同步重置游戏
                     _uiState.update {
                         it.copy(
                             board = update.board,
-                            currentPlayer = update.currentPlayer,
+                            currentPlayer = update.currentPlayer,  // 同步当前玩家
                             gameResult = GameResult.PLAYING
                         )
                     }
@@ -512,7 +527,8 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                             errorMsg = "对方已断开连接",
                             currentRoom = null,
                             roomLink = null,
-                            isWaitingForPlayer = false
+                            isWaitingForPlayer = false,
+                            matchedOpponent = null
                         )
                     }
                     socketNetworkService.disconnect()
@@ -535,6 +551,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                 val roomId = "room_${System.currentTimeMillis()}"
                 val roomLink = "$localIp:$port:$roomId"
 
+                // 房主使用 Host，自己的玩家名为 Host
                 val localRoom = GameRoom(
                     roomId = roomId,
                     host = playerName,
@@ -552,11 +569,13 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                             roomLink = roomLink,
                             isLoading = false,
                             currentScreen = Screen.GAME,
-                            currentPlayer = CellState.X, // 房主先手
+                            currentPlayer = CellState.X, // 房主永远是 X（先手）
                             gameMode = GameMode.HUMAN_VS_HUMAN_ONLINE,
                             isWaitingForPlayer = true,
                             gameResult = GameResult.PLAYING,
-                            board = List(currentBoardSize) { List(currentBoardSize) { CellState.EMPTY } }
+                            board = List(currentBoardSize) { List(currentBoardSize) { CellState.EMPTY } },
+                            // 房主的对手信息设置为空
+                            matchedOpponent = null
                         )
                     }
                 }
@@ -621,14 +640,14 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                     return@launch
                 }
 
-                // 发送加入通知
+                // 发送加入通知（客人是 O）
                 val joinUpdate = GameUpdate(
                     roomId = roomId,
                     type = UpdateType.JOIN,
                     board = List(_uiState.value.boardSize) { List(_uiState.value.boardSize) { CellState.EMPTY } },
-                    currentPlayer = CellState.X,
+                    currentPlayer = CellState.O, // 客人是 O（后手）
                     gameResult = GameResult.PLAYING,
-                    playerName = "Guest",
+                    playerName = "客人",
                     isHost = false
                 )
 
@@ -637,11 +656,11 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                 withContext(Dispatchers.Main) {
                     _uiState.update { state ->
                         state.copy(
-                            currentPlayer = CellState.O, // 客人后手
+                            currentPlayer = CellState.O, // 客人是 O
                             currentRoom = GameRoom(
                                 roomId = roomId,
-                                host = "对方玩家",
-                                guest = "本地玩家",
+                                host = "房主",  // 对方是房主
+                                guest = "客人",  // 自己是客人
                                 isFull = true
                             ),
                             isLoading = false,
@@ -649,7 +668,9 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                             isWaitingForPlayer = false,
                             gameMode = GameMode.HUMAN_VS_HUMAN_ONLINE,
                             board = List(state.boardSize) { List(state.boardSize) { CellState.EMPTY } },
-                            gameResult = GameResult.PLAYING
+                            gameResult = GameResult.PLAYING,
+                            // 客人的对手信息是房主
+                            matchedOpponent = "房主"
                         )
                     }
                 }

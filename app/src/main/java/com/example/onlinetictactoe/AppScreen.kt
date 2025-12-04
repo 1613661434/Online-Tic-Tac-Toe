@@ -144,6 +144,10 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
     val boardSize = uiState.boardSize
 
+    // 判断当前用户是房主还是客人
+    val isHost = uiState.currentRoom?.host == "Host" || uiState.currentRoom?.host == "房主"
+    val isGuest = uiState.currentRoom?.guest == "本地玩家" || uiState.currentRoom?.guest == "客人"
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -160,47 +164,54 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
             )
         }
 
-        // 游戏状态
-// 游戏状态（修复后）
+        // 游戏状态 - 修复后的显示逻辑
         Text(
             text = when {
-                // 优先判断：在线模式且等待玩家时，显示等待提示
+                // 等待玩家加入
                 uiState.isWaitingForPlayer && uiState.gameMode == GameMode.HUMAN_VS_HUMAN_ONLINE ->
                     "等待其他玩家加入..."
 
                 // 游戏进行中
                 uiState.gameResult == GameResult.PLAYING -> {
-                    val playerName = when (uiState.gameMode) {
-                        GameMode.HUMAN_VS_AI -> {
-                            if (uiState.currentPlayer == CellState.X) "你" else "AI"
+                    val currentPlayer = uiState.currentPlayer
+                    val playerSymbol = if (currentPlayer == CellState.X) "X" else "O"
+
+                    if (uiState.gameMode == GameMode.HUMAN_VS_AI) {
+                        if (currentPlayer == CellState.X) "你的回合 (X)" else "AI的回合 (O)"
+                    } else {
+                        // 在线对战
+                        val isMyTurn = when {
+                            isHost && currentPlayer == CellState.X -> true
+                            isGuest && currentPlayer == CellState.O -> true
+                            else -> false
                         }
-                        GameMode.HUMAN_VS_HUMAN_ONLINE -> {
-                            if (uiState.currentPlayer == CellState.X) {
-                                if (uiState.currentRoom?.host == "Host") "你" else "对方"
-                            } else {
-                                if (uiState.currentRoom?.guest == "本地玩家") "你" else "对方"
-                            }
+
+                        if (isMyTurn) {
+                            "你的回合 ($playerSymbol)"
+                        } else {
+                            "对方回合 ($playerSymbol)"
                         }
                     }
-                    "当前回合：$playerName（${uiState.currentPlayer.name}）"
                 }
 
-                // X获胜
-                uiState.gameResult == GameResult.WIN_X -> when (uiState.gameMode) {
-                    GameMode.HUMAN_VS_AI -> "你赢了！"
-                    GameMode.HUMAN_VS_HUMAN_ONLINE -> if (uiState.currentRoom?.host == "Host") "你赢了！" else "对方赢了！"
+                // 游戏结束
+                uiState.gameResult == GameResult.WIN_X -> {
+                    if (uiState.gameMode == GameMode.HUMAN_VS_AI) {
+                        "你赢了！"
+                    } else {
+                        if (isHost) "你赢了！" else "对方赢了！"
+                    }
                 }
 
-                // O获胜
-                uiState.gameResult == GameResult.WIN_O -> when (uiState.gameMode) {
-                    GameMode.HUMAN_VS_AI -> "AI赢了！"
-                    GameMode.HUMAN_VS_HUMAN_ONLINE -> if (uiState.currentRoom?.guest == "本地玩家") "你赢了！" else "对方赢了！"
+                uiState.gameResult == GameResult.WIN_O -> {
+                    if (uiState.gameMode == GameMode.HUMAN_VS_AI) {
+                        "AI赢了！"
+                    } else {
+                        if (isGuest) "你赢了！" else "对方赢了！"
+                    }
                 }
 
-                // 平局
                 uiState.gameResult == GameResult.DRAW -> "平局！"
-
-                // 兜底分支（防止枚举新增值导致报错）
                 else -> "游戏结束"
             },
             fontSize = 20.sp,
@@ -208,7 +219,7 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        // 在GameScreen.kt的Column中添加
+        // 等待玩家加入时显示加载指示器
         if (uiState.isWaitingForPlayer && uiState.gameMode == GameMode.HUMAN_VS_HUMAN_ONLINE) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -218,64 +229,75 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 uiState.roomLink?.let { link ->
                     Text("房间链接: $link", fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("请分享此链接给对方", fontSize = 12.sp)
                 }
             }
         } else {
-        // 棋盘
-        Column {
-            for (row in 0 until boardSize) {
-                Row {
-                    for (col in 0 until boardSize) {
-                        val cell = uiState.board[row][col]
-// 对战页中的棋盘格子部分修改
-                        Card(
-                            modifier = Modifier
-                                .size(80.dp)
-                                .padding(4.dp),
-                            border = BorderStroke(1.dp, Color.Gray),
-                            onClick = {
-                                val canClick = when (uiState.gameMode) {
-                                    GameMode.HUMAN_VS_AI -> {
-                                        uiState.currentPlayer == CellState.X &&
-                                                !uiState.isLoading &&
-                                                uiState.gameResult == GameResult.PLAYING
-                                    }
-                                    GameMode.HUMAN_VS_HUMAN_ONLINE -> {
-                                        !uiState.isWaitingForPlayer &&
-                                                uiState.currentRoom?.isFull == true &&
-                                                uiState.gameResult == GameResult.PLAYING &&
-                                                !uiState.isLoading &&
-                                                // 修复判断逻辑：本地玩家可以操作
-                                                // 注意：我们假设房主是"Host"，客人是"本地玩家"
-                                                (uiState.currentPlayer == CellState.X && uiState.currentRoom?.guest == "本地玩家") ||  // 客人只能在X回合操作
-                                                (uiState.currentPlayer == CellState.O && uiState.currentRoom?.host == "Host")        // 房主只能在O回合操作
-                                    }
-                                }
+            // 棋盘
+            Column {
+                for (row in 0 until boardSize) {
+                    Row {
+                        for (col in 0 until boardSize) {
+                            val cell = uiState.board[row][col]
 
-                                if (canClick) {
-                                    viewModel.handleIntent(TicTacToeIntent.ClickCell(row, col))
-                                }
-                            }
-                        ) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = cell.name,
-                                    fontSize = 32.sp,
-                                    color = when (cell) {
-                                        CellState.X -> Color.Red
-                                        CellState.O -> Color.Blue
-                                        CellState.EMPTY -> Color.Transparent
+                            Card(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .padding(4.dp),
+                                border = BorderStroke(1.dp, Color.Gray),
+                                onClick = {
+                                    val canClick = when (uiState.gameMode) {
+                                        GameMode.HUMAN_VS_AI -> {
+                                            // 人机对战：只有玩家可以点击
+                                            uiState.currentPlayer == CellState.X &&
+                                                    !uiState.isLoading &&
+                                                    uiState.gameResult == GameResult.PLAYING
+                                        }
+
+                                        GameMode.HUMAN_VS_HUMAN_ONLINE -> {
+                                            // 在线对战
+                                            !uiState.isWaitingForPlayer &&
+                                                    uiState.currentRoom?.isFull == true &&
+                                                    uiState.gameResult == GameResult.PLAYING &&
+                                                    !uiState.isLoading &&
+                                                    // 检查是否是当前用户的回合
+                                                    when {
+                                                        isHost && uiState.currentPlayer == CellState.X -> true
+                                                        isGuest && uiState.currentPlayer == CellState.O -> true
+                                                        else -> false
+                                                    }
+                                        }
                                     }
-                                )
+
+                                    if (canClick) {
+                                        viewModel.handleIntent(TicTacToeIntent.ClickCell(row, col))
+                                    }
+                                }
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = when (cell) {
+                                            CellState.X -> "X"
+                                            CellState.O -> "O"
+                                            CellState.EMPTY -> ""
+                                        },
+                                        fontSize = 32.sp,
+                                        color = when (cell) {
+                                            CellState.X -> Color.Red
+                                            CellState.O -> Color.Blue
+                                            CellState.EMPTY -> Color.Transparent
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
-        }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -283,16 +305,28 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         // 重置按钮
         Button(
             onClick = { viewModel.handleIntent(TicTacToeIntent.ResetGame) },
+            enabled = !uiState.isLoading,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("重置游戏")
         }
+
         if (uiState.roomLink != null) {
             Button(
                 onClick = { viewModel.handleIntent(TicTacToeIntent.ShareRoomLink) },
                 modifier = Modifier.padding(top = 16.dp)
             ) {
                 Text("分享房间链接")
+            }
+        }
+
+        // 退出房间按钮
+        if (uiState.gameMode == GameMode.HUMAN_VS_HUMAN_ONLINE) {
+            Button(
+                onClick = { viewModel.handleIntent(TicTacToeIntent.ExitRoom) },
+                modifier = Modifier.padding(top = 16.dp)
+            ) {
+                Text("退出房间")
             }
         }
     }

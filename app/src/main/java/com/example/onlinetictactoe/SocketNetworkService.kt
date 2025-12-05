@@ -36,7 +36,7 @@ class SocketNetworkService(
 
     private val gson = com.google.gson.Gson()
 
-    // 新增：保存客户端输出流（房主用，用于向加入方发送消息）
+    // 保存客户端输出流（房主用，用于向加入方发送消息）
     private val clientOutputs = mutableListOf<OutputStreamWriter>()
 
     // 获取本地IP地址
@@ -116,7 +116,6 @@ class SocketNetworkService(
     }
 
     // 发送游戏更新
-    // 发送游戏更新（区分客户端和服务器端发送逻辑）
     suspend fun sendGameUpdate(update: GameUpdate): Boolean {
         return withContext(Dispatchers.IO) {
             // 客户端（加入方）发送：用clientSocket
@@ -199,7 +198,7 @@ class SocketNetworkService(
                 val reader = BufferedReader(InputStreamReader(socket.getInputStream(), "UTF-8"))
                 writer = OutputStreamWriter(socket.getOutputStream(), "UTF-8")
 
-                // 新增：保存客户端输出流（房主需要用它发消息）
+                // 保存客户端输出流
                 clientOutputs.add(writer)
 
                 while (true) {
@@ -207,7 +206,7 @@ class SocketNetworkService(
                     Log.d(TAG, "收到消息: $message")
 
                     if (message.startsWith("CHECK:")) {
-                        // 处理房间检查（原有逻辑不变）
+                        // 处理房间检查
                         val json = message.removePrefix("CHECK:")
                         val request = gson.fromJson(json, RoomCheckRequest::class.java)
                         val exists = request.roomId == getCurrentRoomId()
@@ -215,7 +214,7 @@ class SocketNetworkService(
                         writer.write("${gson.toJson(response)}\n")
                         writer.flush()
                     } else {
-                        // 处理游戏更新（原有逻辑不变）
+                        // 处理游戏更新
                         try {
                             val update = gson.fromJson(message, GameUpdate::class.java)
                             onGameUpdate(update)
@@ -227,7 +226,7 @@ class SocketNetworkService(
             } catch (e: Exception) {
                 Log.e(TAG, "连接异常", e)
             } finally {
-                // 新增：移除失效的输出流
+                // 移除失效的输出流
                 writer?.let { clientOutputs.remove(it) }
                 try {
                     socket.close()
@@ -282,7 +281,7 @@ class SocketNetworkService(
             serverSocket?.close()
             serverSocket = null
 
-            // 新增：清空客户端输出流
+            // 清空客户端输出流
             clientOutputs.clear()
 
             Log.d(TAG, "断开所有连接")

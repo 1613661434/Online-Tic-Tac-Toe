@@ -9,9 +9,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope // 新增导入
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch // 新增导入
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private lateinit var ticTacToeViewModel: TicTacToeMviViewModel

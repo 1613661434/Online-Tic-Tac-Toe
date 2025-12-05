@@ -35,10 +35,9 @@ import kotlinx.coroutines.flow.update
 // 首页
 @Composable
 fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
-    // 在HomeScreen函数内添加
     val connectionInfo = remember { mutableStateOf("") }
 
-    // 解析「IP:端口:房间号」格式
+    // 解析 IP:端口:房间号 格式
     fun parseConnectionInfo(input: String): Triple<String?, Int?, String?> {
         val parts = input.split(":")
         if (parts.size != 3) return Triple(null, null, null)
@@ -91,7 +90,6 @@ fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         } else {
             Button(
                 onClick = {
-                    // 实际应用中应该让用户输入昵称
                     viewModel.handleIntent(TicTacToeIntent.CreateRoom("Host"))
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -113,7 +111,7 @@ fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         TextField(
             value = connectionInfo.value,
             onValueChange = { connectionInfo.value = it },
-            label = { Text("例如：192.168.1.100:8080:local_123456") },  // 示例改为新格式
+            label = { Text("例如：192.168.1.100:8080:local_123456") },
             modifier = Modifier.fillMaxWidth()
         )
         Button(
@@ -125,7 +123,6 @@ fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
                 val roomId = connectionTriple.third
 
                 if (ip != null && port != null && roomId != null) {
-                    // 直接使用IP:端口:房间号格式作为roomLink，不拼接URL
                     val roomLink = "$ip:$port:$roomId"
                     viewModel.handleIntent(TicTacToeIntent.JoinRoom(roomLink))
                 } else {
@@ -155,7 +152,7 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // 游戏状态 - 修复后的显示逻辑
+        // 游戏状态
         Text(
             text = when {
                 // 等待玩家加入
@@ -309,7 +306,7 @@ fun GameScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
     }
 }
 
-// 记录页（内存版）
+// 记录页
 @Composable
 fun RecordScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
@@ -319,7 +316,7 @@ fun RecordScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text("游戏记录（内存版）", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text("游戏记录", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
 
         if (uiState.gameRecords.isEmpty()) {
@@ -352,7 +349,7 @@ fun RecordScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
     }
 }
 
-// 设置页（保留文件处理）
+// 设置页
 @Composable
 fun SettingsScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
@@ -367,35 +364,7 @@ fun SettingsScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
         Text("游戏设置", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(32.dp))
 
-        // 默认模式
-        Text("当前默认模式：${uiState.savedMode.name}", fontSize = 18.sp)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // 选择默认模式
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Button(
-                onClick = {
-                    viewModel.handleIntent(
-                        TicTacToeIntent.SaveConfig(GameMode.HUMAN_VS_AI, uiState.boardSize)
-                    )
-                }
-            ) {
-                Text("默认人机对战")
-            }
-            Button(
-                onClick = {
-                    viewModel.handleIntent(
-                        TicTacToeIntent.SaveConfig(GameMode.HUMAN_VS_HUMAN_ONLINE, uiState.boardSize)
-                    )
-                }
-            ) {
-                Text("默认在线对战")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // 棋盘大小（简化为3x3固定，可扩展）
+        // 棋盘大小
         Text("棋盘大小：${uiState.boardSize}x${uiState.boardSize}", fontSize = 18.sp)
         Spacer(modifier = Modifier.height(16.dp))
 

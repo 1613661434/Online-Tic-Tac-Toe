@@ -21,7 +21,7 @@ data class TicTacToeState(
 
     val currentRoom: GameRoom? = null, // 当前房间信息
     val roomLink: String? = null, // 房间分享链接
-    val isWaitingForPlayer: Boolean = false, // 新增：是否在等待玩家加入
+    val isWaitingForPlayer: Boolean = false, // 是否在等待玩家加入
     val myTurn: Boolean =true,
     val isHost: Boolean = true
 )

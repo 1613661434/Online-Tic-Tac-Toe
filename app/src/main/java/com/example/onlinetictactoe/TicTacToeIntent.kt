@@ -22,7 +22,7 @@ sealed class TicTacToeIntent {
     data class JoinRoom(val roomId: String) : TicTacToeIntent() // 加入房间
     object ExitRoom : TicTacToeIntent() // 退出房间
     object ShareRoomLink : TicTacToeIntent() // 分享房间链接
-    data class ShowError(val message: String) : TicTacToeIntent() // 新增错误提示
+    data class ShowError(val message: String) : TicTacToeIntent() // 错误提示
 }
 
 // 对战模式枚举

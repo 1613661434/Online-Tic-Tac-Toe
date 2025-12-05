@@ -1,5 +1,6 @@
 package com.example.onlinetictactoe
 
+// 房间数据类
 data class GameRoom(
     val roomId: String,
     val host: String,

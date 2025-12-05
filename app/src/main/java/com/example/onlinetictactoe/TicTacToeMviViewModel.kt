@@ -103,7 +103,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         // 检查胜负
         checkWinner()
 
-        // 新增：如果是人机对战模式，且游戏仍在进行中，触发AI落子
+        // 如果是人机对战模式，且游戏仍在进行中，触发AI落子
         if (_uiState.value.gameMode == GameMode.HUMAN_VS_AI
             && _uiState.value.gameResult == GameResult.PLAYING) {
             aiMakeMove() // 调用AI落子逻辑
@@ -119,10 +119,10 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                 val gameUpdate = GameUpdate(
                     roomId = roomId,
                     type = UpdateType.MOVE,
-                    board = newBoard, // 发送最新棋盘（而非currentState.board）
-                    currentPlayer = nextPlayer, // 关键：发送下一个玩家，而非当前玩家
+                    board = newBoard, // 发送最新棋盘
+                    currentPlayer = nextPlayer, // 发送下一个玩家
                     gameResult = currentState.gameResult,
-                    yourTurn = true
+                    yourTurn = true // 对面的回合
                 )
 
                 // 发送更新
@@ -131,7 +131,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    // 优化后AI落子逻辑（优先堵赢路、找赢路，不做复杂递归）
+    // AI落子逻辑（优先堵赢路、找赢路）
     private fun aiMakeMove() {
         _uiState.update { it.copy(myTurn = false) }
         val board = _uiState.value.board
@@ -214,7 +214,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
             }
             if (allSame) return true
         }
-        // 检查对角线（左上→右下）
+        // 检查对角线（左上->右下）
         var diagonalWin = true
         for (i in 0 until boardSize) {
             if (board[i][i] != player) {
@@ -223,7 +223,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
             }
         }
         if (diagonalWin) return true
-        // 检查对角线（右上→左下）
+        // 检查对角线（右上->左下）
         diagonalWin = true
         for (i in 0 until boardSize) {
             if (board[i][boardSize - 1 - i] != player) {
@@ -234,7 +234,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         return diagonalWin
     }
 
-    // 辅助：执行AI落子（统一逻辑，避免重复）
+    // 辅助：执行AI落子
     private fun executeAIMove(row: Int, col: Int) {
         viewModelScope.launch(Dispatchers.Main) {
             delay(800) // 模拟思考延迟
@@ -243,7 +243,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    // AI专用的落子方法，不会触发AI再次落子
+    // AI专用的落子方法
     private fun handleAICellClick(row: Int, col: Int) {
         val currentBoard = _uiState.value.board
         if (currentBoard[row][col] != CellState.EMPTY || _uiState.value.gameResult != GameResult.PLAYING) {
@@ -268,7 +268,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
         checkWinner()
     }
 
-    // 重置游戏（修复boardSize引用冲突）
+    // 重置游戏
     private fun resetGame() {
         // 重置棋盘
         val newBoard = List(_uiState.value.boardSize) { List(_uiState.value.boardSize) { CellState.EMPTY } }
@@ -495,15 +495,14 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
     // 加载配置文件
     private fun loadConfig() {
         viewModelScope.launch(Dispatchers.IO) {
-            // 定义默认值（你根据实际业务改这两个值即可）
+            // 定义默认值
             val defaultMode = GameMode.HUMAN_VS_AI
-            val defaultBoardSize = 3 // 替换成你的默认棋盘大小（比如4/5）
+            val defaultBoardSize = 3 // 默认棋盘大小
 
             try {
                 if (configFile.exists()) {
                     // 文件存在：解析配置
                     val configJson = configFile.readText()
-                    // 修复TypeToken语法，确保Gson解析泛型Map不报错
                     val configType = object : TypeToken<Map<String, Any?>>() {}.type
                     val config: Map<String, Any?> = gson.fromJson(configJson, configType)
 
@@ -524,7 +523,7 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                         }
                     }
                 } else {
-                    // 关键：补充else分支（文件不存在时设默认值）
+                    // 文件不存在时设默认值
                     withContext(Dispatchers.Main) {
                         _uiState.update {
                             it.copy(savedMode = defaultMode, boardSize = defaultBoardSize)
@@ -621,7 +620,6 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                 val roomId = "room_${System.currentTimeMillis()}"
                 val roomLink = "$localIp:$port:$roomId"
 
-                // 房主使用 Host，自己的玩家名为 Host
                 val localRoom = GameRoom(
                     roomId = roomId,
                     host = playerName,
@@ -709,12 +707,12 @@ class TicTacToeMviViewModel(application: Application) : AndroidViewModel(applica
                     return@launch
                 }
 
-                // 发送加入通知（客人是 O）
+                // 发送加入通知
                 val joinUpdate = GameUpdate(
                     roomId = roomId,
                     type = UpdateType.JOIN,
                     board = List(_uiState.value.boardSize) { List(_uiState.value.boardSize) { CellState.EMPTY } },
-                    currentPlayer = CellState.O, // 房主是 O
+                    currentPlayer = CellState.X, // 房主是 X
                     gameResult = GameResult.PLAYING,
                     isHost = true,
                     yourTurn = true

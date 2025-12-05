@@ -46,7 +46,7 @@ interface ApiService {
     @POST("joinRoom")
     suspend fun joinRoom(@Body request: JoinRoomRequest): Response<RoomResponse>
 
-    // 新增数据类
+    // 数据类
     data class CreateRoomRequest(val hostName: String)
     data class JoinRoomRequest(val roomId: String, val guestName: String)
     data class RoomResponse(

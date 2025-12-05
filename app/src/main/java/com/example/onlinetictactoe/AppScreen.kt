@@ -107,7 +107,7 @@ fun HomeScreen(viewModel: TicTacToeMviViewModel = viewModel()) {
             )
         }
         Spacer(modifier = Modifier.height(16.dp))
-        Text("或输入连接信息（格式：IP:端口:房间号）：")
+        Text("输入连接信息(格式：IP:端口:房间号)：", modifier = Modifier.align(Alignment.Start))
         TextField(
             value = connectionInfo.value,
             onValueChange = { connectionInfo.value = it },
